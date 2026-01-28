@@ -5,18 +5,34 @@ import Dashboard from './pages/Dashboard';
 import Servers from './pages/Servers';
 import Apps from './pages/Apps';
 import Settings from './pages/Settings';
+import { Login } from './pages/Login';
+import { ProtectedRoute } from './components/ProtectedRoute';
 import { useWebSocket } from './hooks/useWebSocket';
+import { useAuthStore } from './stores/useAuthStore';
 
 function App() {
-  const { connect } = useWebSocket();
+  const { connect, disconnect } = useWebSocket();
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   useEffect(() => {
-    connect();
-  }, [connect]);
+    if (isAuthenticated) {
+      connect();
+    } else {
+      disconnect();
+    }
+  }, [isAuthenticated, connect, disconnect]);
 
   return (
     <Routes>
-      <Route path="/" element={<Layout />}>
+      <Route path="/login" element={<Login />} />
+      <Route
+        path="/"
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
         <Route index element={<Dashboard />} />
         <Route path="servers" element={<Servers />} />
         <Route path="apps" element={<Apps />} />

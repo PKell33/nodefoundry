@@ -1,3 +1,5 @@
+import { useAuthStore } from '../stores/useAuthStore';
+
 const API_BASE = '/api';
 
 export class ApiError extends Error {
@@ -11,8 +13,30 @@ export class ApiError extends Error {
   }
 }
 
+function getAuthHeaders(): HeadersInit {
+  const { accessToken } = useAuthStore.getState();
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json',
+  };
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  return headers;
+}
+
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    // Handle 401 - try to refresh token
+    if (response.status === 401) {
+      const refreshed = await tryRefreshToken();
+      if (refreshed) {
+        // Token refreshed, but caller should retry the request
+        throw new ApiError(401, 'TOKEN_REFRESHED', 'Token refreshed, please retry');
+      }
+      // Refresh failed, logout
+      useAuthStore.getState().logout();
+    }
+
     const error = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
     throw new ApiError(
       response.status,
@@ -28,116 +52,212 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return response.json();
 }
 
+async function tryRefreshToken(): Promise<boolean> {
+  const { refreshToken, setTokens, logout } = useAuthStore.getState();
+  if (!refreshToken) return false;
+
+  try {
+    const res = await fetch(`${API_BASE}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!res.ok) {
+      logout();
+      return false;
+    }
+
+    const data = await res.json();
+    setTokens(data.accessToken, data.refreshToken);
+    return true;
+  } catch {
+    logout();
+    return false;
+  }
+}
+
+async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      ...getAuthHeaders(),
+      ...options.headers,
+    },
+  });
+  return handleResponse<T>(response);
+}
+
 export const api = {
+  // Auth
+  async login(username: string, password: string) {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    return handleResponse<AuthResponse>(res);
+  },
+
+  async logout() {
+    const { refreshToken } = useAuthStore.getState();
+    if (refreshToken) {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ refreshToken }),
+      }).catch(() => {}); // Ignore errors on logout
+    }
+    useAuthStore.getState().logout();
+  },
+
+  async getMe() {
+    return fetchWithAuth<User>(`${API_BASE}/auth/me`);
+  },
+
+  async changePassword(oldPassword: string, newPassword: string) {
+    return fetchWithAuth<{ message: string }>(`${API_BASE}/auth/change-password`, {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, newPassword }),
+    });
+  },
+
+  async setup(username: string, password: string) {
+    const res = await fetch(`${API_BASE}/auth/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+    return handleResponse<AuthResponse>(res);
+  },
+
+  // User management (admin only)
+  async getUsers() {
+    return fetchWithAuth<UserInfo[]>(`${API_BASE}/auth/users`);
+  },
+
+  async createUser(username: string, password: string, role: 'admin' | 'viewer' = 'viewer') {
+    return fetchWithAuth<UserInfo>(`${API_BASE}/auth/users`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password, role }),
+    });
+  },
+
+  async deleteUser(userId: string) {
+    return fetchWithAuth<void>(`${API_BASE}/auth/users/${userId}`, {
+      method: 'DELETE',
+    });
+  },
+
   // Servers
   async getServers() {
-    const res = await fetch(`${API_BASE}/servers`);
-    return handleResponse<Server[]>(res);
+    return fetchWithAuth<Server[]>(`${API_BASE}/servers`);
   },
 
   async getServer(id: string) {
-    const res = await fetch(`${API_BASE}/servers/${id}`);
-    return handleResponse<Server>(res);
+    return fetchWithAuth<Server>(`${API_BASE}/servers/${id}`);
   },
 
   async addServer(data: { name: string; host: string }) {
-    const res = await fetch(`${API_BASE}/servers`, {
+    return fetchWithAuth<{ server: Server; bootstrapCommand: string }>(`${API_BASE}/servers`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
-    return handleResponse<{ server: Server; bootstrapCommand: string }>(res);
   },
 
   async deleteServer(id: string) {
-    const res = await fetch(`${API_BASE}/servers/${id}`, { method: 'DELETE' });
-    return handleResponse<void>(res);
+    return fetchWithAuth<void>(`${API_BASE}/servers/${id}`, { method: 'DELETE' });
   },
 
   // Apps
   async getApps() {
-    const res = await fetch(`${API_BASE}/apps`);
-    return handleResponse<AppManifest[]>(res);
+    return fetchWithAuth<AppManifest[]>(`${API_BASE}/apps`);
   },
 
   async getApp(name: string) {
-    const res = await fetch(`${API_BASE}/apps/${name}`);
-    return handleResponse<AppManifest>(res);
+    return fetchWithAuth<AppManifest>(`${API_BASE}/apps/${name}`);
   },
 
   // Deployments
   async getDeployments(serverId?: string) {
     const url = serverId ? `${API_BASE}/deployments?serverId=${serverId}` : `${API_BASE}/deployments`;
-    const res = await fetch(url);
-    return handleResponse<Deployment[]>(res);
+    return fetchWithAuth<Deployment[]>(url);
   },
 
   async getDeployment(id: string) {
-    const res = await fetch(`${API_BASE}/deployments/${id}`);
-    return handleResponse<Deployment>(res);
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}`);
   },
 
   async validateInstall(serverId: string, appName: string) {
-    const res = await fetch(`${API_BASE}/deployments/validate`, {
+    return fetchWithAuth<ValidationResult>(`${API_BASE}/deployments/validate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ serverId, appName }),
     });
-    return handleResponse<ValidationResult>(res);
   },
 
   async installApp(serverId: string, appName: string, config?: Record<string, unknown>) {
-    const res = await fetch(`${API_BASE}/deployments`, {
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ serverId, appName, config }),
     });
-    return handleResponse<Deployment>(res);
   },
 
   async updateDeployment(id: string, config: Record<string, unknown>) {
-    const res = await fetch(`${API_BASE}/deployments/${id}`, {
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config }),
     });
-    return handleResponse<Deployment>(res);
   },
 
   async startDeployment(id: string) {
-    const res = await fetch(`${API_BASE}/deployments/${id}/start`, { method: 'POST' });
-    return handleResponse<Deployment>(res);
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/start`, { method: 'POST' });
   },
 
   async stopDeployment(id: string) {
-    const res = await fetch(`${API_BASE}/deployments/${id}/stop`, { method: 'POST' });
-    return handleResponse<Deployment>(res);
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/stop`, { method: 'POST' });
   },
 
   async restartDeployment(id: string) {
-    const res = await fetch(`${API_BASE}/deployments/${id}/restart`, { method: 'POST' });
-    return handleResponse<Deployment>(res);
+    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/restart`, { method: 'POST' });
   },
 
   async uninstallDeployment(id: string) {
-    const res = await fetch(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
-    return handleResponse<void>(res);
+    return fetchWithAuth<void>(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
   },
 
   // Services
   async getServices() {
-    const res = await fetch(`${API_BASE}/services`);
-    return handleResponse<Service[]>(res);
+    return fetchWithAuth<Service[]>(`${API_BASE}/services`);
   },
 
   // System
   async getSystemStatus() {
-    const res = await fetch(`${API_BASE}/system/status`);
-    return handleResponse<SystemStatus>(res);
+    return fetchWithAuth<SystemStatus>(`${API_BASE}/system/status`);
   },
 };
 
 // Types
+export interface User {
+  userId: string;
+  username: string;
+  role: string;
+}
+
+export interface AuthResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+  user: User;
+}
+
+export interface UserInfo {
+  id: string;
+  username: string;
+  role: string;
+  created_at: string;
+  last_login_at: string | null;
+}
+
 export interface Server {
   id: string;
   name: string;

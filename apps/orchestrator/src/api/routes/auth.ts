@@ -205,6 +205,125 @@ router.post('/setup', validateBody(schemas.auth.setup), async (req, res) => {
 });
 
 /**
+ * GET /api/auth/users
+ * List all users (admin only)
+ */
+router.get('/users', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Admin access required',
+      },
+    });
+  }
+
+  const users = authService.listUsers();
+  res.json(users);
+});
+
+/**
+ * POST /api/auth/users
+ * Create a new user (admin only)
+ */
+router.post('/users', requireAuth, validateBody(schemas.auth.createUser), async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Admin access required',
+      },
+    });
+  }
+
+  try {
+    const { username, password, role } = req.body;
+
+    const userId = await authService.createUser(username, password, role || 'viewer');
+
+    logAudit(req.user.userId, 'user_created', 'user', userId, req.ip, { username, role });
+
+    const user = authService.getUser(userId);
+    res.status(201).json(user);
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Username already exists') {
+      return res.status(409).json({
+        error: {
+          code: 'USERNAME_EXISTS',
+          message: 'Username already exists',
+        },
+      });
+    }
+    console.error('Create user error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to create user',
+      },
+    });
+  }
+});
+
+/**
+ * DELETE /api/auth/users/:id
+ * Delete a user (admin only, cannot delete self)
+ */
+router.delete('/users/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  if (req.user?.role !== 'admin') {
+    return res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Admin access required',
+      },
+    });
+  }
+
+  const { id } = req.params;
+
+  // Prevent self-deletion
+  if (id === req.user.userId) {
+    return res.status(400).json({
+      error: {
+        code: 'CANNOT_DELETE_SELF',
+        message: 'Cannot delete your own account',
+      },
+    });
+  }
+
+  try {
+    const db = getDb();
+    const user = db.prepare('SELECT id, username FROM users WHERE id = ?').get(id) as { id: string; username: string } | undefined;
+
+    if (!user) {
+      return res.status(404).json({
+        error: {
+          code: 'USER_NOT_FOUND',
+          message: 'User not found',
+        },
+      });
+    }
+
+    // Revoke all tokens first
+    await authService.revokeAllUserTokens(id);
+
+    // Delete the user
+    db.prepare('DELETE FROM users WHERE id = ?').run(id);
+
+    logAudit(req.user.userId, 'user_deleted', 'user', id, req.ip, { username: user.username });
+
+    res.status(204).send();
+  } catch (err) {
+    console.error('Delete user error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to delete user',
+      },
+    });
+  }
+});
+
+/**
  * Helper to log audit events
  */
 function logAudit(

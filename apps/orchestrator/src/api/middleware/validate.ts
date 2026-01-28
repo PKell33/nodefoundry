@@ -132,6 +132,17 @@ export const schemas = {
     refresh: z.object({
       refreshToken: z.string().min(1, 'Refresh token is required'),
     }),
+
+    createUser: z.object({
+      username: z.string()
+        .min(3, 'Username must be at least 3 characters')
+        .max(50)
+        .regex(/^[a-zA-Z0-9_-]+$/, 'Username can only contain letters, numbers, underscores, and hyphens'),
+      password: z.string()
+        .min(8, 'Password must be at least 8 characters')
+        .max(100),
+      role: z.enum(['admin', 'viewer']).optional().default('viewer'),
+    }),
   },
 
   // Server schemas
