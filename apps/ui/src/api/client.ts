@@ -234,6 +234,20 @@ export const api = {
   async getSystemStatus() {
     return fetchWithAuth<SystemStatus>(`${API_BASE}/system/status`);
   },
+
+  // Audit logs
+  async getAuditLogs(options?: { limit?: number; offset?: number; action?: string }) {
+    const params = new URLSearchParams();
+    if (options?.limit) params.set('limit', options.limit.toString());
+    if (options?.offset) params.set('offset', options.offset.toString());
+    if (options?.action) params.set('action', options.action);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchWithAuth<AuditLogsResponse>(`${API_BASE}/audit-logs${query}`);
+  },
+
+  async getAuditLogActions() {
+    return fetchWithAuth<string[]>(`${API_BASE}/audit-logs/actions`);
+  },
 };
 
 // Types
@@ -354,4 +368,23 @@ export interface SystemStatus {
   servers: { total: number; online: number };
   deployments: { total: number; running: number };
   timestamp: string;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  timestamp: string;
+  userId: string | null;
+  username: string | null;
+  action: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  ipAddress: string | null;
+  details: Record<string, unknown> | null;
+}
+
+export interface AuditLogsResponse {
+  logs: AuditLogEntry[];
+  total: number;
+  limit: number;
+  offset: number;
 }

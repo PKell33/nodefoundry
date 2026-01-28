@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSystemStatus } from '../hooks/useApi';
 import { useAuthStore } from '../stores/useAuthStore';
-import { api, UserInfo } from '../api/client';
-import { Plus, Trash2, User, Shield, Eye, Wrench, Loader2, AlertCircle } from 'lucide-react';
+import { api, UserInfo, AuditLogEntry } from '../api/client';
+import { Plus, Trash2, User, Shield, Eye, Wrench, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
 
 export default function Settings() {
   const { data: status } = useSystemStatus();
@@ -18,6 +18,9 @@ export default function Settings() {
 
       {/* User Management - Admin only */}
       {isAdmin && <UserManagement currentUserId={currentUser?.userId} />}
+
+      {/* Audit Log - Admin only */}
+      {isAdmin && <AuditLog />}
 
       {/* System Info */}
       <section>
@@ -283,6 +286,192 @@ function CreateUserForm({
         </button>
       </div>
     </form>
+  );
+}
+
+function AuditLog() {
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [actions, setActions] = useState<string[]>([]);
+  const [selectedAction, setSelectedAction] = useState<string>('');
+  const limit = 20;
+
+  const fetchLogs = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.getAuditLogs({
+        limit,
+        offset,
+        action: selectedAction || undefined,
+      });
+      setLogs(data.logs);
+      setTotal(data.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load audit logs');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchActions = async () => {
+    try {
+      const data = await api.getAuditLogActions();
+      setActions(data);
+    } catch {
+      // Ignore errors for action list
+    }
+  };
+
+  useEffect(() => {
+    fetchActions();
+  }, []);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [offset, selectedAction]);
+
+  const handlePrevPage = () => {
+    setOffset(Math.max(0, offset - limit));
+  };
+
+  const handleNextPage = () => {
+    if (offset + limit < total) {
+      setOffset(offset + limit);
+    }
+  };
+
+  const getActionColor = (action: string) => {
+    if (action.includes('failed') || action.includes('deleted')) return 'text-red-400';
+    if (action.includes('created') || action === 'login') return 'text-green-400';
+    if (action.includes('changed')) return 'text-yellow-400';
+    return 'text-gray-400';
+  };
+
+  const getActionIcon = (action: string) => {
+    if (action === 'login' || action === 'login_failed') return '🔐';
+    if (action.includes('created')) return '➕';
+    if (action.includes('deleted')) return '🗑️';
+    if (action.includes('changed')) return '✏️';
+    return '📋';
+  };
+
+  const formatAction = (action: string) => {
+    return action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <ScrollText size={20} className="text-gray-400" />
+          <h2 className="text-lg font-semibold">Audit Log</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <Filter size={16} className="text-gray-400" />
+          <select
+            value={selectedAction}
+            onChange={(e) => {
+              setSelectedAction(e.target.value);
+              setOffset(0);
+            }}
+            className="px-3 py-1.5 bg-gray-700 border border-gray-600 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All actions</option>
+            {actions.map(action => (
+              <option key={action} value={action}>{formatAction(action)}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        {loading ? (
+          <div className="p-8 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          </div>
+        ) : error ? (
+          <div className="p-4 flex items-center gap-3 text-red-400">
+            <AlertCircle size={20} />
+            <span>{error}</span>
+          </div>
+        ) : logs.length === 0 ? (
+          <div className="p-8 text-center text-gray-400">
+            No audit logs found
+          </div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-700/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Time</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Action</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">User</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">IP Address</th>
+                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-700">
+                  {logs.map(log => (
+                    <tr key={log.id} className="hover:bg-gray-700/30">
+                      <td className="px-4 py-3 text-sm text-gray-400 whitespace-nowrap">
+                        {new Date(log.timestamp).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`flex items-center gap-2 text-sm ${getActionColor(log.action)}`}>
+                          <span>{getActionIcon(log.action)}</span>
+                          {formatAction(log.action)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm">
+                        {log.username || <span className="text-gray-500">-</span>}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-400 font-mono">
+                        {log.ipAddress || '-'}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-400">
+                        {log.details && Object.keys(log.details).length > 0 ? (
+                          <span className="text-xs bg-gray-700 px-2 py-1 rounded font-mono">
+                            {JSON.stringify(log.details)}
+                          </span>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            <div className="px-4 py-3 border-t border-gray-700 flex items-center justify-between">
+              <span className="text-sm text-gray-400">
+                Showing {offset + 1}-{Math.min(offset + limit, total)} of {total}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePrevPage}
+                  disabled={offset === 0}
+                  className="p-2 hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                </button>
+                <button
+                  onClick={handleNextPage}
+                  disabled={offset + limit >= total}
+                  className="p-2 hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </section>
   );
 }
 

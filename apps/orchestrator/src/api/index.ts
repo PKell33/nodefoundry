@@ -10,6 +10,7 @@ import deploymentsRouter from './routes/deployments.js';
 import servicesRouter from './routes/services.js';
 import systemRouter from './routes/system.js';
 import proxyRouter from './routes/proxy.js';
+import auditRouter from './routes/audit.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { devBypassAuth, AuthenticatedRequest } from './middleware/auth.js';
 import { config } from '../config.js';
@@ -142,6 +143,7 @@ export function createApi(): express.Application {
   app.use('/api/deployments', devBypassAuth, deploymentsRouter);
   app.use('/api/services', devBypassAuth, servicesRouter);
   app.use('/api/system', devBypassAuth, systemRouter);
+  app.use('/api/audit-logs', devBypassAuth, auditRouter);
 
   // Error handling
   app.use('/api/*', notFoundHandler);
