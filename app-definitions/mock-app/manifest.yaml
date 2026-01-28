@@ -1,0 +1,26 @@
+name: mock-app
+displayName: Mock App
+description: Simple test app for platform development
+version: 1.0.0
+category: utility
+
+source:
+  type: git
+  gitUrl: https://github.com/nodefoundry/mock-app
+
+provides:
+  - name: mock-service
+    port: 9999
+    protocol: http
+
+webui:
+  enabled: true
+  port: 9999
+  basePath: /apps/mock-app
+
+configSchema:
+  - name: message
+    type: string
+    label: Welcome Message
+    description: Message displayed on the web page
+    default: "Hello from Mock App"
