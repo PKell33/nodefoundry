@@ -1,6 +1,8 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID, createHash, randomBytes } from 'crypto';
+import * as OTPAuth from 'otpauth';
+import QRCode from 'qrcode';
 import { getDb } from '../db/index.js';
 import { config } from '../config.js';
 
@@ -9,8 +11,17 @@ interface UserRow {
   username: string;
   password_hash: string;
   role: string;
+  totp_secret: string | null;
+  totp_enabled: boolean;
+  backup_codes: string | null;
   created_at: string;
   last_login_at: string | null;
+}
+
+export interface TotpSetupResult {
+  secret: string;
+  qrCode: string;
+  backupCodes: string[];
 }
 
 interface RefreshTokenRow {
@@ -290,6 +301,211 @@ class AuthService {
   listUsers(): Omit<UserRow, 'password_hash'>[] {
     const db = getDb();
     return db.prepare('SELECT id, username, role, created_at, last_login_at FROM users ORDER BY created_at').all() as Omit<UserRow, 'password_hash'>[];
+  }
+
+  // TOTP Methods
+  isTotpEnabled(userId: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_enabled FROM users WHERE id = ?').get(userId) as { totp_enabled: boolean } | undefined;
+    return user?.totp_enabled || false;
+  }
+
+  isTotpEnabledForUsername(username: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_enabled FROM users WHERE username = ?').get(username) as { totp_enabled: boolean } | undefined;
+    return user?.totp_enabled || false;
+  }
+
+  async setupTotp(userId: string): Promise<TotpSetupResult> {
+    const db = getDb();
+    const user = db.prepare('SELECT username, totp_enabled FROM users WHERE id = ?').get(userId) as { username: string; totp_enabled: boolean } | undefined;
+
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    if (user.totp_enabled) {
+      throw new Error('TOTP is already enabled');
+    }
+
+    // Generate secret
+    const secret = new OTPAuth.Secret({ size: 20 });
+
+    // Create TOTP instance
+    const totp = new OTPAuth.TOTP({
+      issuer: 'NodeFoundry',
+      label: user.username,
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: secret,
+    });
+
+    // Generate QR code
+    const otpauthUrl = totp.toString();
+    const qrCode = await QRCode.toDataURL(otpauthUrl);
+
+    // Generate backup codes
+    const backupCodes = this.generateBackupCodes();
+
+    // Store secret (not enabled yet - user must verify first)
+    db.prepare(`
+      UPDATE users
+      SET totp_secret = ?, backup_codes = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(secret.base32, JSON.stringify(backupCodes.map(c => this.hashToken(c))), userId);
+
+    return {
+      secret: secret.base32,
+      qrCode,
+      backupCodes,
+    };
+  }
+
+  private generateBackupCodes(): string[] {
+    const codes: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      // Generate 8-character alphanumeric codes
+      const code = randomBytes(4).toString('hex').toUpperCase();
+      codes.push(code);
+    }
+    return codes;
+  }
+
+  verifyAndEnableTotp(userId: string, code: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_secret, totp_enabled FROM users WHERE id = ?').get(userId) as { totp_secret: string | null; totp_enabled: boolean } | undefined;
+
+    if (!user || !user.totp_secret) {
+      return false;
+    }
+
+    if (user.totp_enabled) {
+      return false; // Already enabled
+    }
+
+    // Verify the code
+    const totp = new OTPAuth.TOTP({
+      issuer: 'NodeFoundry',
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.totp_secret),
+    });
+
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta === null) {
+      return false;
+    }
+
+    // Enable TOTP
+    db.prepare('UPDATE users SET totp_enabled = TRUE, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(userId);
+    return true;
+  }
+
+  verifyTotpCode(userId: string, code: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_secret, totp_enabled, backup_codes FROM users WHERE id = ?').get(userId) as { totp_secret: string | null; totp_enabled: boolean; backup_codes: string | null } | undefined;
+
+    if (!user || !user.totp_secret || !user.totp_enabled) {
+      return false;
+    }
+
+    // First try TOTP code
+    const totp = new OTPAuth.TOTP({
+      issuer: 'NodeFoundry',
+      algorithm: 'SHA1',
+      digits: 6,
+      period: 30,
+      secret: OTPAuth.Secret.fromBase32(user.totp_secret),
+    });
+
+    const delta = totp.validate({ token: code, window: 1 });
+    if (delta !== null) {
+      return true;
+    }
+
+    // Try backup code
+    if (user.backup_codes) {
+      const hashedCodes = JSON.parse(user.backup_codes) as string[];
+      const codeHash = this.hashToken(code.toUpperCase());
+      const codeIndex = hashedCodes.indexOf(codeHash);
+
+      if (codeIndex !== -1) {
+        // Remove used backup code
+        hashedCodes.splice(codeIndex, 1);
+        db.prepare('UPDATE users SET backup_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+          .run(JSON.stringify(hashedCodes), userId);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  disableTotp(userId: string, password: string): Promise<boolean> {
+    return this.disableTotpWithPassword(userId, password);
+  }
+
+  async disableTotpWithPassword(userId: string, password: string): Promise<boolean> {
+    const db = getDb();
+    const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
+
+    if (!user) {
+      return false;
+    }
+
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) {
+      return false;
+    }
+
+    db.prepare(`
+      UPDATE users
+      SET totp_secret = NULL, totp_enabled = FALSE, backup_codes = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(userId);
+
+    return true;
+  }
+
+  regenerateBackupCodes(userId: string): string[] | null {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_enabled FROM users WHERE id = ?').get(userId) as { totp_enabled: boolean } | undefined;
+
+    if (!user || !user.totp_enabled) {
+      return null;
+    }
+
+    const backupCodes = this.generateBackupCodes();
+    db.prepare('UPDATE users SET backup_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(JSON.stringify(backupCodes.map(c => this.hashToken(c))), userId);
+
+    return backupCodes;
+  }
+
+  getTotpStatus(userId: string): { enabled: boolean; backupCodesRemaining: number } {
+    const db = getDb();
+    const user = db.prepare('SELECT totp_enabled, backup_codes FROM users WHERE id = ?').get(userId) as { totp_enabled: boolean; backup_codes: string | null } | undefined;
+
+    if (!user) {
+      return { enabled: false, backupCodesRemaining: 0 };
+    }
+
+    let backupCodesRemaining = 0;
+    if (user.backup_codes) {
+      try {
+        const codes = JSON.parse(user.backup_codes) as string[];
+        backupCodesRemaining = codes.length;
+      } catch {
+        backupCodesRemaining = 0;
+      }
+    }
+
+    return {
+      enabled: user.totp_enabled,
+      backupCodesRemaining,
+    };
   }
 
   async ensureDefaultUser(): Promise<void> {

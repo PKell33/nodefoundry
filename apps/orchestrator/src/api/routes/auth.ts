@@ -9,7 +9,7 @@ const router = Router();
 
 /**
  * POST /api/auth/login
- * Authenticate user and return tokens
+ * Authenticate user and return tokens (or require TOTP if enabled)
  */
 router.post('/login', validateBody(schemas.auth.login), async (req, res) => {
   try {
@@ -28,6 +28,16 @@ router.post('/login', validateBody(schemas.auth.login), async (req, res) => {
       });
     }
 
+    // Check if TOTP is enabled
+    const totpEnabled = authService.isTotpEnabled(user.id);
+    if (totpEnabled) {
+      // Don't issue tokens yet - require TOTP verification
+      return res.json({
+        totpRequired: true,
+        message: 'TOTP verification required',
+      });
+    }
+
     const tokens = authService.generateTokens(user, {
       ipAddress: req.ip,
       userAgent: req.headers['user-agent'],
@@ -38,7 +48,7 @@ router.post('/login', validateBody(schemas.auth.login), async (req, res) => {
 
     res.json({
       user: {
-        id: user.id,
+        userId: user.id,
         username: user.username,
         role: user.role,
       },
@@ -46,6 +56,65 @@ router.post('/login', validateBody(schemas.auth.login), async (req, res) => {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Login failed',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/login/totp
+ * Complete login with TOTP code
+ */
+router.post('/login/totp', validateBody(schemas.auth.loginWithTotp), async (req, res) => {
+  try {
+    const { username, password, totpCode } = req.body;
+
+    const user = await authService.validateCredentials(username, password);
+    if (!user) {
+      logAudit(null, 'login_failed', 'user', username, req.ip, { reason: 'invalid_credentials' });
+
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_CREDENTIALS',
+          message: 'Invalid username or password',
+        },
+      });
+    }
+
+    // Verify TOTP code
+    const totpValid = authService.verifyTotpCode(user.id, totpCode);
+    if (!totpValid) {
+      logAudit(user.id, 'login_failed', 'user', user.id, req.ip, { reason: 'invalid_totp' });
+
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_TOTP',
+          message: 'Invalid verification code',
+        },
+      });
+    }
+
+    const tokens = authService.generateTokens(user, {
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    logAudit(user.id, 'login', 'user', user.id, req.ip, { totp: true });
+
+    res.json({
+      user: {
+        userId: user.id,
+        username: user.username,
+        role: user.role,
+      },
+      ...tokens,
+    });
+  } catch (err) {
+    console.error('TOTP login error:', err);
     res.status(500).json({
       error: {
         code: 'INTERNAL_ERROR',
@@ -278,6 +347,157 @@ router.post('/sessions/revoke-others', requireAuth, (req: AuthenticatedRequest, 
       error: {
         code: 'INTERNAL_ERROR',
         message: 'Failed to revoke sessions',
+      },
+    });
+  }
+});
+
+// ==================
+// TOTP Endpoints
+// ==================
+
+/**
+ * GET /api/auth/totp/status
+ * Get TOTP status for current user
+ */
+router.get('/totp/status', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const status = authService.getTotpStatus(req.user!.userId);
+    res.json(status);
+  } catch (err) {
+    console.error('Get TOTP status error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to get TOTP status',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/totp/setup
+ * Start TOTP setup - generates secret and QR code
+ */
+router.post('/totp/setup', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const result = await authService.setupTotp(req.user!.userId);
+
+    logAudit(req.user!.userId, 'totp_setup_started', 'user', req.user!.userId, req.ip, {});
+
+    res.json({
+      secret: result.secret,
+      qrCode: result.qrCode,
+      backupCodes: result.backupCodes,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'TOTP is already enabled') {
+      return res.status(400).json({
+        error: {
+          code: 'TOTP_ALREADY_ENABLED',
+          message: 'Two-factor authentication is already enabled',
+        },
+      });
+    }
+    console.error('TOTP setup error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to setup TOTP',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/totp/verify
+ * Verify TOTP code and enable 2FA
+ */
+router.post('/totp/verify', requireAuth, validateBody(schemas.auth.totpVerify), (req: AuthenticatedRequest, res) => {
+  try {
+    const { code } = req.body;
+
+    const success = authService.verifyAndEnableTotp(req.user!.userId, code);
+    if (!success) {
+      return res.status(400).json({
+        error: {
+          code: 'INVALID_CODE',
+          message: 'Invalid verification code',
+        },
+      });
+    }
+
+    logAudit(req.user!.userId, 'totp_enabled', 'user', req.user!.userId, req.ip, {});
+
+    res.json({ success: true, message: 'Two-factor authentication enabled' });
+  } catch (err) {
+    console.error('TOTP verify error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to verify TOTP',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/totp/disable
+ * Disable TOTP (requires password)
+ */
+router.post('/totp/disable', requireAuth, validateBody(schemas.auth.totpDisable), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { password } = req.body;
+
+    const success = await authService.disableTotp(req.user!.userId, password);
+    if (!success) {
+      return res.status(401).json({
+        error: {
+          code: 'INVALID_PASSWORD',
+          message: 'Invalid password',
+        },
+      });
+    }
+
+    logAudit(req.user!.userId, 'totp_disabled', 'user', req.user!.userId, req.ip, {});
+
+    res.json({ success: true, message: 'Two-factor authentication disabled' });
+  } catch (err) {
+    console.error('TOTP disable error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to disable TOTP',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/totp/backup-codes
+ * Regenerate backup codes
+ */
+router.post('/totp/backup-codes', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const codes = authService.regenerateBackupCodes(req.user!.userId);
+    if (!codes) {
+      return res.status(400).json({
+        error: {
+          code: 'TOTP_NOT_ENABLED',
+          message: 'Two-factor authentication is not enabled',
+        },
+      });
+    }
+
+    logAudit(req.user!.userId, 'totp_backup_codes_regenerated', 'user', req.user!.userId, req.ip, {});
+
+    res.json({ backupCodes: codes });
+  } catch (err) {
+    console.error('Regenerate backup codes error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to regenerate backup codes',
       },
     });
   }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Lock, User, AlertCircle, Loader2, Sun, Moon } from 'lucide-react';
+import { Lock, User, AlertCircle, Loader2, Sun, Moon, Shield } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useThemeStore } from '../stores/useThemeStore';
@@ -15,6 +15,8 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [isSetup, setIsSetup] = useState(false);
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [totpRequired, setTotpRequired] = useState(false);
+  const [totpCode, setTotpCode] = useState('');
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
@@ -30,13 +32,35 @@ export function Login() {
     setLoading(true);
 
     try {
-      const response = isSetup
-        ? await api.setup(username, password)
-        : await api.login(username, password);
-
-      setTokens(response.accessToken, response.refreshToken);
-      setUser(response.user);
-      navigate(from, { replace: true });
+      if (totpRequired) {
+        // Complete login with TOTP
+        const response = await api.loginWithTotp(username, password, totpCode);
+        setTokens(response.accessToken, response.refreshToken);
+        setUser(response.user);
+        navigate(from, { replace: true });
+      } else if (isSetup) {
+        // Setup mode
+        await api.setup(username, password);
+        // After setup, log in
+        const response = await api.login(username, password);
+        if ('totpRequired' in response && response.totpRequired) {
+          setTotpRequired(true);
+        } else {
+          setTokens(response.accessToken, response.refreshToken);
+          setUser(response.user);
+          navigate(from, { replace: true });
+        }
+      } else {
+        // Normal login
+        const response = await api.login(username, password);
+        if ('totpRequired' in response && response.totpRequired) {
+          setTotpRequired(true);
+        } else {
+          setTokens(response.accessToken, response.refreshToken);
+          setUser(response.user);
+          navigate(from, { replace: true });
+        }
+      }
     } catch (err) {
       if (err instanceof Error) {
         // Check if this is a "no users" error - switch to setup mode
@@ -52,6 +76,12 @@ export function Login() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleBackToLogin = () => {
+    setTotpRequired(false);
+    setTotpCode('');
+    clearError();
   };
 
   return (
@@ -72,7 +102,11 @@ export function Login() {
             <span className="text-bitcoin">N</span>odefoundry
           </h1>
           <p className="dark:text-gray-400 light:text-gray-500">
-            {isSetup ? 'Create Admin Account' : 'Sign in to your account'}
+            {totpRequired
+              ? 'Enter verification code'
+              : isSetup
+                ? 'Create Admin Account'
+                : 'Sign in to your account'}
           </p>
         </div>
 
@@ -84,87 +118,143 @@ export function Login() {
             </div>
           )}
 
-          <div className="space-y-5">
-            <div>
-              <label htmlFor="username" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
-                Username
-              </label>
-              <div className="relative">
-                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
-                <input
-                  id="username"
-                  type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className="input-field pl-10"
-                  placeholder="Enter username"
-                  required
-                  autoComplete="username"
-                  autoFocus
-                />
+          {totpRequired ? (
+            // TOTP verification step
+            <div className="space-y-5">
+              <div className="text-center mb-4">
+                <div className="w-12 h-12 mx-auto bg-blue-600/20 rounded-full flex items-center justify-center mb-3">
+                  <Shield className="w-6 h-6 text-blue-400" />
+                </div>
+                <p className="text-sm dark:text-gray-400 light:text-gray-500">
+                  Enter the 6-digit code from your authenticator app, or use a backup code.
+                </p>
               </div>
-            </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
-                <input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="input-field pl-10"
-                  placeholder="Enter password"
-                  required
-                  autoComplete={isSetup ? 'new-password' : 'current-password'}
-                />
-              </div>
-            </div>
-
-            {isSetup && (
               <div>
-                <label htmlFor="confirmPassword" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
-                  Confirm Password
+                <label htmlFor="totpCode" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                  Verification Code
+                </label>
+                <input
+                  id="totpCode"
+                  type="text"
+                  value={totpCode}
+                  onChange={(e) => setTotpCode(e.target.value.replace(/\s/g, ''))}
+                  className="input-field text-center text-xl tracking-widest"
+                  placeholder="000000"
+                  required
+                  autoComplete="one-time-code"
+                  autoFocus
+                  maxLength={8}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={isLoading || totpCode.length < 6}
+                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Verifying...
+                  </>
+                ) : (
+                  'Verify'
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleBackToLogin}
+                className="w-full py-2 text-sm dark:text-gray-400 light:text-gray-500 hover:underline"
+              >
+                Back to login
+              </button>
+            </div>
+          ) : (
+            // Normal login / setup form
+            <div className="space-y-5">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                  Username
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="input-field pl-10"
+                    placeholder="Enter username"
+                    required
+                    autoComplete="username"
+                    autoFocus
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                  Password
                 </label>
                 <div className="relative">
                   <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
                   <input
-                    id="confirmPassword"
+                    id="password"
                     type="password"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     className="input-field pl-10"
-                    placeholder="Confirm password"
+                    placeholder="Enter password"
                     required
-                    autoComplete="new-password"
+                    autoComplete={isSetup ? 'new-password' : 'current-password'}
                   />
                 </div>
               </div>
-            )}
-          </div>
 
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="mt-6 w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                {isSetup ? 'Creating Account...' : 'Signing in...'}
-              </>
-            ) : (
-              isSetup ? 'Create Account' : 'Sign In'
-            )}
-          </button>
+              {isSetup && (
+                <div>
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                    Confirm Password
+                  </label>
+                  <div className="relative">
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
+                    <input
+                      id="confirmPassword"
+                      type="password"
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="input-field pl-10"
+                      placeholder="Confirm password"
+                      required
+                      autoComplete="new-password"
+                    />
+                  </div>
+                </div>
+              )}
 
-          {isSetup && (
-            <p className="mt-4 text-center text-sm dark:text-gray-400 light:text-gray-500">
-              This will create the initial admin account for NodeFoundry.
-            </p>
+              <button
+                type="submit"
+                disabled={isLoading}
+                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    {isSetup ? 'Creating Account...' : 'Signing in...'}
+                  </>
+                ) : (
+                  isSetup ? 'Create Account' : 'Sign In'
+                )}
+              </button>
+
+              {isSetup && (
+                <p className="text-center text-sm dark:text-gray-400 light:text-gray-500">
+                  This will create the initial admin account for NodeFoundry.
+                </p>
+              )}
+            </div>
           )}
         </form>
 

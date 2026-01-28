@@ -96,6 +96,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
+    return handleResponse<LoginResponse>(res);
+  },
+
+  async loginWithTotp(username: string, password: string, totpCode: string) {
+    const res = await fetch(`${API_BASE}/auth/login/totp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password, totpCode }),
+    });
     return handleResponse<AuthResponse>(res);
   },
 
@@ -273,6 +282,37 @@ export const api = {
       body: JSON.stringify({ refreshToken }),
     });
   },
+
+  // TOTP
+  async getTotpStatus() {
+    return fetchWithAuth<TotpStatus>(`${API_BASE}/auth/totp/status`);
+  },
+
+  async setupTotp() {
+    return fetchWithAuth<TotpSetupResponse>(`${API_BASE}/auth/totp/setup`, {
+      method: 'POST',
+    });
+  },
+
+  async verifyTotp(code: string) {
+    return fetchWithAuth<{ success: boolean; message: string }>(`${API_BASE}/auth/totp/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+  },
+
+  async disableTotp(password: string) {
+    return fetchWithAuth<{ success: boolean; message: string }>(`${API_BASE}/auth/totp/disable`, {
+      method: 'POST',
+      body: JSON.stringify({ password }),
+    });
+  },
+
+  async regenerateBackupCodes() {
+    return fetchWithAuth<{ backupCodes: string[] }>(`${API_BASE}/auth/totp/backup-codes`, {
+      method: 'POST',
+    });
+  },
 };
 
 // Types
@@ -422,4 +462,20 @@ export interface SessionInfo {
   lastUsedAt: string | null;
   expiresAt: string;
   isCurrent: boolean;
+}
+
+export interface TotpStatus {
+  enabled: boolean;
+  backupCodesRemaining: number;
+}
+
+export interface TotpSetupResponse {
+  secret: string;
+  qrCode: string;
+  backupCodes: string[];
+}
+
+export interface LoginResponse extends AuthResponse {
+  totpRequired?: boolean;
+  message?: string;
 }

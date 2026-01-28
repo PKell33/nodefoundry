@@ -88,6 +88,9 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT NOT NULL UNIQUE,
     password_hash TEXT NOT NULL,
     role TEXT DEFAULT 'admin',
+    totp_secret TEXT,
+    totp_enabled BOOLEAN DEFAULT FALSE,
+    backup_codes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_login_at TIMESTAMP

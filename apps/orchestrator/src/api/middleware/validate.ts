@@ -143,6 +143,21 @@ export const schemas = {
         .max(100),
       role: z.enum(['admin', 'operator', 'viewer']).optional().default('viewer'),
     }),
+
+    // TOTP schemas
+    loginWithTotp: z.object({
+      username: z.string().min(1, 'Username is required').max(50),
+      password: z.string().min(1, 'Password is required'),
+      totpCode: z.string().min(6, 'TOTP code is required').max(8),
+    }),
+
+    totpVerify: z.object({
+      code: z.string().min(6, 'Code is required').max(8),
+    }),
+
+    totpDisable: z.object({
+      password: z.string().min(1, 'Password is required'),
+    }),
   },
 
   // Server schemas
