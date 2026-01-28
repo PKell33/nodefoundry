@@ -20,9 +20,9 @@ async function main(): Promise<void> {
   // Initialize WebSocket
   createWebSocket(httpServer);
 
-  // Start listening
-  httpServer.listen(config.port, () => {
-    console.log(`Orchestrator listening on port ${config.port}`);
+  // Start listening on all interfaces for remote access
+  httpServer.listen(config.port, '0.0.0.0', () => {
+    console.log(`Orchestrator listening on 0.0.0.0:${config.port}`);
     console.log(`API: http://localhost:${config.port}/api`);
     console.log(`WebSocket: ws://localhost:${config.port}`);
   });
