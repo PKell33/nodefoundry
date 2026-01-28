@@ -28,7 +28,10 @@ router.post('/login', validateBody(schemas.auth.login), async (req, res) => {
       });
     }
 
-    const tokens = authService.generateTokens(user);
+    const tokens = authService.generateTokens(user, {
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
 
     // Log successful login
     logAudit(user.id, 'login', 'user', user.id, req.ip, {});
@@ -60,7 +63,10 @@ router.post('/refresh', validateBody(schemas.auth.refresh), async (req, res) => 
   try {
     const { refreshToken } = req.body;
 
-    const tokens = await authService.refreshAccessToken(refreshToken);
+    const tokens = await authService.refreshAccessToken(refreshToken, {
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
     if (!tokens) {
       return res.status(401).json({
         error: {
@@ -160,6 +166,118 @@ router.post('/change-password', requireAuth, validateBody(schemas.auth.changePas
       error: {
         code: 'INTERNAL_ERROR',
         message: 'Password change failed',
+      },
+    });
+  }
+});
+
+/**
+ * GET /api/auth/sessions
+ * List all active sessions for current user
+ */
+router.get('/sessions', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    // Get current token hash from the refresh token in the request body or header
+    // Since we don't have the refresh token here, we'll pass undefined
+    // The UI will send the current refresh token to identify the current session
+    const sessions = authService.getUserSessions(req.user!.userId);
+    res.json(sessions);
+  } catch (err) {
+    console.error('Get sessions error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to get sessions',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/sessions/current
+ * Get sessions with current session marked (requires refresh token in body)
+ */
+router.post('/sessions/current', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const { refreshToken } = req.body;
+    let currentTokenHash: string | undefined;
+
+    if (refreshToken) {
+      currentTokenHash = authService.getTokenHashFromRefreshToken(refreshToken);
+    }
+
+    const sessions = authService.getUserSessions(req.user!.userId, currentTokenHash);
+    res.json(sessions);
+  } catch (err) {
+    console.error('Get sessions error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to get sessions',
+      },
+    });
+  }
+});
+
+/**
+ * DELETE /api/auth/sessions/:id
+ * Revoke a specific session
+ */
+router.delete('/sessions/:id', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const revoked = authService.revokeSession(req.user!.userId, id);
+
+    if (!revoked) {
+      return res.status(404).json({
+        error: {
+          code: 'SESSION_NOT_FOUND',
+          message: 'Session not found',
+        },
+      });
+    }
+
+    logAudit(req.user!.userId, 'session_revoked', 'session', id, req.ip, {});
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Revoke session error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to revoke session',
+      },
+    });
+  }
+});
+
+/**
+ * POST /api/auth/sessions/revoke-others
+ * Revoke all sessions except the current one
+ */
+router.post('/sessions/revoke-others', requireAuth, (req: AuthenticatedRequest, res) => {
+  try {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+      return res.status(400).json({
+        error: {
+          code: 'MISSING_TOKEN',
+          message: 'Current refresh token required',
+        },
+      });
+    }
+
+    const currentTokenHash = authService.getTokenHashFromRefreshToken(refreshToken);
+    const revokedCount = authService.revokeOtherSessions(req.user!.userId, currentTokenHash);
+
+    logAudit(req.user!.userId, 'sessions_revoked', 'session', 'all_others', req.ip, { count: revokedCount });
+    res.json({ success: true, revokedCount });
+  } catch (err) {
+    console.error('Revoke other sessions error:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Failed to revoke sessions',
       },
     });
   }

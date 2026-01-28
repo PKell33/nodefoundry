@@ -248,6 +248,31 @@ export const api = {
   async getAuditLogActions() {
     return fetchWithAuth<string[]>(`${API_BASE}/audit-logs/actions`);
   },
+
+  // Sessions
+  async getSessions() {
+    return fetchWithAuth<SessionInfo[]>(`${API_BASE}/auth/sessions`);
+  },
+
+  async getSessionsWithCurrent(refreshToken: string) {
+    return fetchWithAuth<SessionInfo[]>(`${API_BASE}/auth/sessions/current`, {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    });
+  },
+
+  async revokeSession(sessionId: string) {
+    return fetchWithAuth<{ success: boolean }>(`${API_BASE}/auth/sessions/${sessionId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  async revokeOtherSessions(refreshToken: string) {
+    return fetchWithAuth<{ success: boolean; revokedCount: number }>(`${API_BASE}/auth/sessions/revoke-others`, {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    });
+  },
 };
 
 // Types
@@ -387,4 +412,14 @@ export interface AuditLogsResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface SessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  isCurrent: boolean;
 }

@@ -18,6 +18,25 @@ interface RefreshTokenRow {
   user_id: string;
   token_hash: string;
   expires_at: string;
+  created_at: string;
+  ip_address: string | null;
+  user_agent: string | null;
+  last_used_at: string | null;
+}
+
+export interface SessionInfo {
+  id: string;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string;
+  isCurrent: boolean;
+}
+
+export interface SessionMetadata {
+  ipAddress?: string;
+  userAgent?: string;
 }
 
 export interface TokenPayload {
@@ -81,7 +100,7 @@ class AuthService {
     return user;
   }
 
-  generateTokens(user: UserRow): AuthTokens {
+  generateTokens(user: UserRow, sessionMeta?: SessionMetadata): AuthTokens {
     const payload: TokenPayload = {
       userId: user.id,
       username: user.username,
@@ -98,8 +117,8 @@ class AuthService {
       { expiresIn: config.jwt.refreshTokenExpiry as jwt.SignOptions['expiresIn'] }
     );
 
-    // Store refresh token hash
-    this.storeRefreshToken(user.id, refreshToken);
+    // Store refresh token hash with session metadata
+    this.storeRefreshToken(user.id, refreshToken, sessionMeta);
 
     return {
       accessToken,
@@ -108,7 +127,7 @@ class AuthService {
     };
   }
 
-  private storeRefreshToken(userId: string, token: string): void {
+  private storeRefreshToken(userId: string, token: string, sessionMeta?: SessionMetadata): void {
     const db = getDb();
     const id = randomUUID();
     const tokenHash = this.hashToken(token);
@@ -118,15 +137,15 @@ class AuthService {
     const expiresAt = new Date(decoded.exp * 1000).toISOString();
 
     db.prepare(`
-      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(id, userId, tokenHash, expiresAt);
+      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at, ip_address, user_agent, last_used_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP)
+    `).run(id, userId, tokenHash, expiresAt, sessionMeta?.ipAddress || null, sessionMeta?.userAgent || null);
 
-    // Clean up old tokens for this user (keep last 5)
+    // Clean up old tokens for this user (keep last 10 sessions)
     db.prepare(`
       DELETE FROM refresh_tokens
       WHERE user_id = ? AND id NOT IN (
-        SELECT id FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC LIMIT 5
+        SELECT id FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC LIMIT 10
       )
     `).run(userId, userId);
   }
@@ -144,7 +163,7 @@ class AuthService {
     }
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<AuthTokens | null> {
+  async refreshAccessToken(refreshToken: string, sessionMeta?: SessionMetadata): Promise<AuthTokens | null> {
     const db = getDb();
 
     // Verify the refresh token
@@ -178,8 +197,12 @@ class AuthService {
     // Delete old refresh token
     db.prepare('DELETE FROM refresh_tokens WHERE id = ?').run(storedToken.id);
 
-    // Generate new tokens
-    return this.generateTokens(user);
+    // Generate new tokens, preserving session metadata (update IP if changed)
+    const meta: SessionMetadata = {
+      ipAddress: sessionMeta?.ipAddress || storedToken.ip_address || undefined,
+      userAgent: storedToken.user_agent || sessionMeta?.userAgent || undefined,
+    };
+    return this.generateTokens(user, meta);
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<void> {
@@ -191,6 +214,49 @@ class AuthService {
   async revokeAllUserTokens(userId: string): Promise<void> {
     const db = getDb();
     db.prepare('DELETE FROM refresh_tokens WHERE user_id = ?').run(userId);
+  }
+
+  getUserSessions(userId: string, currentTokenHash?: string): SessionInfo[] {
+    const db = getDb();
+    const sessions = db.prepare(`
+      SELECT id, ip_address, user_agent, created_at, last_used_at, expires_at, token_hash
+      FROM refresh_tokens
+      WHERE user_id = ? AND expires_at > CURRENT_TIMESTAMP
+      ORDER BY last_used_at DESC
+    `).all(userId) as (RefreshTokenRow & { token_hash: string })[];
+
+    return sessions.map(s => ({
+      id: s.id,
+      ipAddress: s.ip_address,
+      userAgent: s.user_agent,
+      createdAt: s.created_at,
+      lastUsedAt: s.last_used_at,
+      expiresAt: s.expires_at,
+      isCurrent: currentTokenHash ? s.token_hash === currentTokenHash : false,
+    }));
+  }
+
+  getSessionIdFromToken(refreshToken: string): string | null {
+    const db = getDb();
+    const tokenHash = this.hashToken(refreshToken);
+    const session = db.prepare('SELECT id FROM refresh_tokens WHERE token_hash = ?').get(tokenHash) as { id: string } | undefined;
+    return session?.id || null;
+  }
+
+  getTokenHashFromRefreshToken(refreshToken: string): string {
+    return this.hashToken(refreshToken);
+  }
+
+  revokeSession(userId: string, sessionId: string): boolean {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM refresh_tokens WHERE id = ? AND user_id = ?').run(sessionId, userId);
+    return result.changes > 0;
+  }
+
+  revokeOtherSessions(userId: string, currentTokenHash: string): number {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM refresh_tokens WHERE user_id = ? AND token_hash != ?').run(userId, currentTokenHash);
+    return result.changes;
   }
 
   async changePassword(userId: string, oldPassword: string, newPassword: string): Promise<boolean> {

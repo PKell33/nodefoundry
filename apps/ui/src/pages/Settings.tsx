@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useSystemStatus } from '../hooks/useApi';
 import { useAuthStore } from '../stores/useAuthStore';
-import { api, UserInfo, AuditLogEntry } from '../api/client';
-import { Plus, Trash2, User, Shield, Eye, Wrench, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { api, UserInfo, AuditLogEntry, SessionInfo } from '../api/client';
+import { Plus, Trash2, User, Shield, Eye, Wrench, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter, Monitor, Smartphone, Globe, LogOut, XCircle } from 'lucide-react';
 
 export default function Settings() {
   const { data: status } = useSystemStatus();
@@ -15,6 +15,9 @@ export default function Settings() {
         <h1 className="text-2xl font-bold mb-2">Settings</h1>
         <p className="text-gray-400">Configure your Nodefoundry instance</p>
       </div>
+
+      {/* Session Management */}
+      <SessionManagement />
 
       {/* User Management - Admin only */}
       {isAdmin && <UserManagement currentUserId={currentUser?.userId} />}
@@ -181,6 +184,221 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
               ))}
             </tbody>
           </table>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SessionManagement() {
+  const { refreshToken } = useAuthStore();
+  const [sessions, setSessions] = useState<SessionInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const fetchSessions = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      if (refreshToken) {
+        const data = await api.getSessionsWithCurrent(refreshToken);
+        setSessions(data);
+      } else {
+        const data = await api.getSessions();
+        setSessions(data);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sessions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSessions();
+  }, []);
+
+  const handleRevokeSession = async (sessionId: string) => {
+    if (!confirm('Are you sure you want to end this session?')) {
+      return;
+    }
+
+    try {
+      setRevoking(sessionId);
+      await api.revokeSession(sessionId);
+      setSessions(sessions.filter(s => s.id !== sessionId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to revoke session');
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  const handleRevokeOthers = async () => {
+    if (!refreshToken) {
+      alert('Current session token not available');
+      return;
+    }
+
+    if (!confirm('Are you sure you want to end all other sessions?')) {
+      return;
+    }
+
+    try {
+      setRevoking('all');
+      const result = await api.revokeOtherSessions(refreshToken);
+      if (result.revokedCount > 0) {
+        setSessions(sessions.filter(s => s.isCurrent));
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to revoke sessions');
+    } finally {
+      setRevoking(null);
+    }
+  };
+
+  const parseUserAgent = (userAgent: string | null): { device: string; browser: string } => {
+    if (!userAgent) return { device: 'Unknown', browser: 'Unknown' };
+
+    let device = 'Desktop';
+    let browser = 'Unknown';
+
+    // Detect device
+    if (/Mobile|Android|iPhone|iPad/i.test(userAgent)) {
+      device = /iPhone|iPad/i.test(userAgent) ? 'iOS' : 'Android';
+    } else if (/Windows/i.test(userAgent)) {
+      device = 'Windows';
+    } else if (/Mac/i.test(userAgent)) {
+      device = 'macOS';
+    } else if (/Linux/i.test(userAgent)) {
+      device = 'Linux';
+    }
+
+    // Detect browser
+    if (/Firefox/i.test(userAgent)) {
+      browser = 'Firefox';
+    } else if (/Edg/i.test(userAgent)) {
+      browser = 'Edge';
+    } else if (/Chrome/i.test(userAgent)) {
+      browser = 'Chrome';
+    } else if (/Safari/i.test(userAgent)) {
+      browser = 'Safari';
+    }
+
+    return { device, browser };
+  };
+
+  const getDeviceIcon = (userAgent: string | null) => {
+    if (!userAgent) return <Globe size={20} className="text-gray-400" />;
+    if (/Mobile|Android|iPhone/i.test(userAgent)) {
+      return <Smartphone size={20} className="text-gray-400" />;
+    }
+    return <Monitor size={20} className="text-gray-400" />;
+  };
+
+  const formatTimeAgo = (dateStr: string | null) => {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  };
+
+  const otherSessionsCount = sessions.filter(s => !s.isCurrent).length;
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Monitor size={20} className="text-gray-400" />
+          <h2 className="text-lg font-semibold">Active Sessions</h2>
+        </div>
+        {otherSessionsCount > 0 && (
+          <button
+            onClick={handleRevokeOthers}
+            disabled={revoking !== null}
+            className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <LogOut size={16} />
+            End All Other Sessions
+          </button>
+        )}
+      </div>
+
+      <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+        {loading ? (
+          <div className="p-8 flex items-center justify-center">
+            <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          </div>
+        ) : error ? (
+          <div className="p-4 flex items-center gap-3 text-red-400">
+            <AlertCircle size={20} />
+            <span>{error}</span>
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="p-8 text-center text-gray-400">
+            No active sessions
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-700">
+            {sessions.map(session => {
+              const { device, browser } = parseUserAgent(session.userAgent);
+              return (
+                <div key={session.id} className="p-4 hover:bg-gray-700/30 transition-colors">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-1">
+                        {getDeviceIcon(session.userAgent)}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{device}</span>
+                          <span className="text-gray-400">-</span>
+                          <span className="text-gray-300">{browser}</span>
+                          {session.isCurrent && (
+                            <span className="text-xs bg-green-600 px-2 py-0.5 rounded">Current</span>
+                          )}
+                        </div>
+                        <div className="text-sm text-gray-400 mt-1 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <Globe size={12} />
+                            <span className="font-mono">{session.ipAddress || 'Unknown IP'}</span>
+                          </div>
+                          <div>
+                            Last active: {formatTimeAgo(session.lastUsedAt)}
+                            {' · '}
+                            Created: {new Date(session.createdAt).toLocaleDateString()}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    {!session.isCurrent && (
+                      <button
+                        onClick={() => handleRevokeSession(session.id)}
+                        disabled={revoking === session.id}
+                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                        title="End session"
+                      >
+                        {revoking === session.id ? (
+                          <Loader2 size={16} className="animate-spin" />
+                        ) : (
+                          <XCircle size={16} />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </section>
