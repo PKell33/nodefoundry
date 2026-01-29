@@ -1,14 +1,18 @@
 name: bitcoin
-displayName: Bitcoin Core
-description: Full Bitcoin node - the backbone of the Bitcoin network
-version: 28.0
+displayName: Bitcoin Knots
+description: Full Bitcoin node with enhanced features and policy options
+version: 29.2.knots20251110
 category: bitcoin
 
 source:
   type: binary
-  githubRepo: bitcoin/bitcoin
-  downloadUrl: "https://bitcoincore.org/bin/bitcoin-core-${version}/bitcoin-${version}-x86_64-linux-gnu.tar.gz"
-  checksumUrl: "https://bitcoincore.org/bin/bitcoin-core-${version}/SHA256SUMS"
+  githubRepo: bitcoinknots/bitcoin
+  # Standard Knots download
+  downloadUrl: "https://bitcoinknots.org/files/29.x/${version}/bitcoin-${version}-${arch}.tar.gz"
+  checksumUrl: "https://bitcoinknots.org/files/29.x/${version}/SHA256SUMS"
+  # BIP-110 variant from dathonohm/bitcoin
+  bip110DownloadUrl: "https://github.com/dathonohm/bitcoin/releases/download/v${version}%2Bbip110-v0.1/bitcoin-${version}+bip110-v0.1-${arch}.tar.gz"
+  bip110ChecksumUrl: "https://github.com/dathonohm/bitcoin/releases/download/v${version}%2Bbip110-v0.1/SHA256SUMS"
 
 provides:
   - name: bitcoin-rpc
@@ -36,6 +40,12 @@ tor:
     targetPort: 8332
 
 configSchema:
+  - name: variant
+    type: select
+    label: Bitcoin Knots Variant
+    description: Standard Knots or with BIP-110 (temporary data restrictions)
+    options: [standard, bip110]
+    default: standard
   - name: network
     type: select
     label: Network
@@ -62,6 +72,16 @@ configSchema:
     label: Max Connections
     description: Maximum number of peer connections
     default: 125
+  - name: blocksonly
+    type: boolean
+    label: Blocks Only Mode
+    description: Only download blocks, not unconfirmed transactions (saves bandwidth)
+    default: false
+  - name: assumevalid
+    type: string
+    label: Assume Valid Block
+    description: Skip signature verification up to this block hash (leave empty for default)
+    default: ""
   - name: rpcuser
     type: string
     label: RPC Username
