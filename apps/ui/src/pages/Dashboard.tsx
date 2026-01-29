@@ -38,7 +38,7 @@ export default function Dashboard() {
     <div className="space-y-6 md:space-y-8">
       <div>
         <h1 className="text-xl md:text-2xl font-bold mb-1 md:mb-2">Dashboard</h1>
-        <p className="text-sm md:text-base dark:text-gray-400 light:text-gray-500">
+        <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">
           Overview of your Bitcoin infrastructure
         </p>
       </div>
@@ -98,14 +98,14 @@ export default function Dashboard() {
           <h2 className="text-base md:text-lg font-semibold">Servers</h2>
           <Link
             to="/servers"
-            className="text-sm dark:text-gray-400 light:text-gray-500 hover:text-bitcoin"
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-bitcoin"
           >
             View all
           </Link>
         </div>
 
         {serversLoading ? (
-          <div className="dark:text-gray-400 light:text-gray-500">Loading...</div>
+          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {servers?.slice(0, 3).map((server) => {
@@ -139,9 +139,9 @@ export default function Dashboard() {
                   <span className="font-medium capitalize text-sm md:text-base truncate">
                     {deployment.appName}
                   </span>
-                  <ExternalLink size={14} className="dark:text-gray-400 light:text-gray-500 flex-shrink-0" />
+                  <ExternalLink size={14} className="text-gray-500 dark:text-gray-400 flex-shrink-0" />
                 </div>
-                <div className="text-xs md:text-sm dark:text-gray-400 light:text-gray-500 truncate">
+                <div className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate">
                   {deployment.serverId}
                 </div>
               </a>
@@ -156,18 +156,18 @@ export default function Dashboard() {
           <h2 className="text-base md:text-lg font-semibold">All Deployments</h2>
           <Link
             to="/apps"
-            className="text-sm dark:text-gray-400 light:text-gray-500 hover:text-bitcoin"
+            className="text-sm text-gray-500 dark:text-gray-400 hover:text-bitcoin"
           >
             Manage apps
           </Link>
         </div>
 
         {deploymentsLoading ? (
-          <div className="dark:text-gray-400 light:text-gray-500">Loading...</div>
+          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
         ) : deployments?.length === 0 ? (
           <div className="card p-6 md:p-8 text-center">
-            <Package size={40} className="mx-auto mb-4 dark:text-gray-600 light:text-gray-400" />
-            <p className="dark:text-gray-400 light:text-gray-500 mb-4">No apps deployed yet</p>
+            <Package size={40} className="mx-auto mb-4 text-gray-400 dark:text-gray-600" />
+            <p className="text-gray-500 dark:text-gray-400 mb-4">No apps deployed yet</p>
             <Link
               to="/apps"
               className="inline-flex items-center gap-2 px-4 py-2 bg-bitcoin hover:bg-bitcoin/90 text-black font-medium rounded transition-colors text-sm"
@@ -178,14 +178,14 @@ export default function Dashboard() {
         ) : (
           <div className="card overflow-hidden">
             {/* Mobile: Card layout */}
-            <div className="md:hidden divide-y dark:divide-gray-700 light:divide-gray-200">
+            <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
               {deployments?.map((deployment) => (
                 <div key={deployment.id} className="p-3">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-medium">{deployment.appName}</span>
                     <StatusBadge status={deployment.status} size="sm" />
                   </div>
-                  <div className="flex items-center justify-between text-xs dark:text-gray-400 light:text-gray-500">
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
                     <span>{deployment.serverId}</span>
                     <span>v{deployment.version}</span>
                   </div>
@@ -197,7 +197,7 @@ export default function Dashboard() {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="table-header border-b dark:border-gray-700 light:border-gray-200">
+                  <tr className="table-header border-b border-gray-200 dark:border-gray-700">
                     <th className="px-4 py-3">App</th>
                     <th className="px-4 py-3">Server</th>
                     <th className="px-4 py-3">Status</th>
@@ -208,13 +208,13 @@ export default function Dashboard() {
                   {deployments?.map((deployment) => (
                     <tr key={deployment.id} className="table-row last:border-0">
                       <td className="px-4 py-3 font-medium">{deployment.appName}</td>
-                      <td className="px-4 py-3 dark:text-gray-400 light:text-gray-500">
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
                         {deployment.serverId}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={deployment.status} size="sm" />
                       </td>
-                      <td className="px-4 py-3 dark:text-gray-400 light:text-gray-500">
+                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
                         {deployment.version}
                       </td>
                     </tr>
@@ -244,10 +244,10 @@ function StatCard({
     <div className="card p-3 md:p-4">
       <div className="flex items-center gap-2 md:gap-3 mb-1 md:mb-2">
         {icon}
-        <span className="text-xs md:text-sm dark:text-gray-400 light:text-gray-500">{label}</span>
+        <span className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{label}</span>
       </div>
       <div className="text-xl md:text-2xl font-bold">{value}</div>
-      <div className="text-xs md:text-sm dark:text-gray-500 light:text-gray-400">{subtext}</div>
+      <div className="text-xs md:text-sm text-gray-400 dark:text-gray-500">{subtext}</div>
     </div>
   );
 }

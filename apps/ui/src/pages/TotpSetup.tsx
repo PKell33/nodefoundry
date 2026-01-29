@@ -73,14 +73,14 @@ export function TotpSetup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 dark:bg-gray-900 light:bg-gray-100">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-gray-100 dark:bg-gray-900">
       <div className="max-w-lg w-full">
         <div className="text-center mb-8">
           <div className="w-16 h-16 mx-auto bg-yellow-600/20 rounded-full flex items-center justify-center mb-4">
             <Shield className="w-8 h-8 text-yellow-500" />
           </div>
           <h1 className="text-2xl font-bold mb-2">Two-Factor Authentication Required</h1>
-          <p className="dark:text-gray-400 light:text-gray-500">
+          <p className="text-gray-500 dark:text-gray-400">
             {user?.username}, your account requires 2FA to be enabled.
             <br />
             Please complete the setup to continue.
@@ -90,7 +90,7 @@ export function TotpSetup() {
         <div className="card p-6 md:p-8 shadow-xl">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-8 h-8 animate-spin dark:text-gray-400 light:text-gray-500" />
+              <Loader2 className="w-8 h-8 animate-spin text-gray-500 dark:text-gray-400" />
             </div>
           ) : error && !setupData ? (
             <div className="text-center py-8">
@@ -111,12 +111,12 @@ export function TotpSetup() {
                   <Check className="w-6 h-6 text-green-400" />
                 </div>
                 <h2 className="text-lg font-semibold mb-2">2FA Enabled Successfully</h2>
-                <p className="text-sm dark:text-gray-400 light:text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Save your backup codes in a safe place. You'll need them if you lose access to your authenticator.
                 </p>
               </div>
 
-              <div className="p-4 rounded-lg dark:bg-gray-700/50 light:bg-gray-100">
+              <div className="p-4 rounded-lg bg-gray-100 dark:bg-gray-700/50">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium">Backup Codes</span>
                   <button
@@ -133,14 +133,13 @@ export function TotpSetup() {
                       key={i}
                       onClick={() => copyToClipboard(code)}
                       className="flex items-center justify-between px-3 py-2 font-mono text-sm rounded
-                        dark:bg-gray-600 dark:hover:bg-gray-500 light:bg-white light:hover:bg-gray-50
-                        border dark:border-gray-600 light:border-gray-200 transition-colors"
+                        bg-white hover:bg-gray-50 border border-gray-200 dark:bg-gray-600 dark:hover:bg-gray-500 dark:border-gray-600 transition-colors"
                     >
                       <span>{code}</span>
                       {copiedCode === code ? (
                         <Check size={14} className="text-green-400" />
                       ) : (
-                        <Copy size={14} className="dark:text-gray-500 light:text-gray-400" />
+                        <Copy size={14} className="text-gray-400 dark:text-gray-500" />
                       )}
                     </button>
                   ))}
@@ -175,7 +174,7 @@ export function TotpSetup() {
                   <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">1</div>
                   <span className="font-medium">Scan QR Code</span>
                 </div>
-                <p className="text-sm dark:text-gray-400 light:text-gray-500 mb-4 ml-8">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4 ml-8">
                   Use an authenticator app (Google Authenticator, Authy, etc.) to scan this code.
                 </p>
                 <div className="flex justify-center p-4 rounded-lg bg-white">
@@ -185,17 +184,17 @@ export function TotpSetup() {
                 </div>
               </div>
 
-              <div className="border-t dark:border-gray-700 light:border-gray-200 pt-4">
-                <div className="text-sm dark:text-gray-400 light:text-gray-500 mb-2">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                <div className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                   Or enter this code manually:
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 font-mono text-sm rounded dark:bg-gray-700 light:bg-gray-100 break-all">
+                  <code className="flex-1 p-2 font-mono text-sm rounded bg-gray-100 dark:bg-gray-700 break-all">
                     {setupData?.secret}
                   </code>
                   <button
                     onClick={() => setupData?.secret && copyToClipboard(setupData.secret)}
-                    className="p-2 rounded dark:hover:bg-gray-700 light:hover:bg-gray-200 transition-colors"
+                    className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
                   >
                     {copiedCode === setupData?.secret ? (
                       <Check size={16} className="text-green-400" />
@@ -206,12 +205,12 @@ export function TotpSetup() {
                 </div>
               </div>
 
-              <div className="border-t dark:border-gray-700 light:border-gray-200 pt-4">
+              <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
                 <div className="flex items-center gap-2 mb-3">
                   <div className="w-6 h-6 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold">2</div>
                   <span className="font-medium">Verify Code</span>
                 </div>
-                <p className="text-sm dark:text-gray-400 light:text-gray-500 mb-3 ml-8">
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3 ml-8">
                   Enter the 6-digit code from your authenticator app.
                 </p>
                 <div className="flex gap-2">
@@ -239,10 +238,10 @@ export function TotpSetup() {
 
           {/* Logout option */}
           {step === 'setup' && (
-            <div className="mt-6 pt-4 border-t dark:border-gray-700 light:border-gray-200">
+            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={handleLogout}
-                className="w-full flex items-center justify-center gap-2 py-2 text-sm dark:text-gray-400 light:text-gray-500 hover:text-red-400 transition-colors"
+                className="w-full flex items-center justify-center gap-2 py-2 text-sm text-gray-500 dark:text-gray-400 hover:text-red-400 transition-colors"
               >
                 <LogOut size={16} />
                 Sign out and use a different account
@@ -251,7 +250,7 @@ export function TotpSetup() {
           )}
         </div>
 
-        <p className="mt-6 text-center text-xs dark:text-gray-500 light:text-gray-400">
+        <p className="mt-6 text-center text-xs text-gray-400 dark:text-gray-500">
           Two-factor authentication is required by your organization's security policy.
         </p>
       </div>

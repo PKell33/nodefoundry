@@ -39,7 +39,7 @@ export default function MetricsChart({ serverId, height = 200, showLegend = true
         className="flex items-center justify-center text-sm"
         style={{ height }}
       >
-        <span className="dark:text-gray-500 light:text-gray-400">
+        <span className="text-gray-400 dark:text-gray-500">
           Waiting for metrics...
         </span>
       </div>
@@ -151,7 +151,7 @@ export function SingleMetricChart({
         className="flex items-center justify-center text-xs"
         style={{ height }}
       >
-        <span className="dark:text-gray-500 light:text-gray-400">
+        <span className="text-gray-400 dark:text-gray-500">
           Waiting for data...
         </span>
       </div>
@@ -253,7 +253,7 @@ export function AggregatedMetricsChart({
         className="flex items-center justify-center text-sm"
         style={{ height }}
       >
-        <span className="dark:text-gray-500 light:text-gray-400">
+        <span className="text-gray-400 dark:text-gray-500">
           Waiting for metrics...
         </span>
       </div>

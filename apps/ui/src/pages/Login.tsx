@@ -103,13 +103,12 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4 dark:bg-gray-900 light:bg-gray-100">
+    <div className="min-h-screen flex items-center justify-center px-4 bg-gray-100 dark:bg-gray-900">
       {/* Theme toggle */}
       <button
         onClick={toggleTheme}
         className="absolute top-4 right-4 p-2 rounded-lg transition-colors
-          dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-800
-          light:text-gray-500 light:hover:text-gray-900 light:hover:bg-gray-200"
+          text-gray-500 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-800"
       >
         {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
       </button>
@@ -119,7 +118,7 @@ export function Login() {
           <h1 className="text-3xl font-bold mb-2">
             <span className="text-bitcoin">O</span>wnPrem
           </h1>
-          <p className="dark:text-gray-400 light:text-gray-500">
+          <p className="text-gray-500 dark:text-gray-400">
             {totpRequired
               ? 'Enter verification code'
               : isSetup
@@ -143,13 +142,13 @@ export function Login() {
                 <div className="w-12 h-12 mx-auto bg-blue-600/20 rounded-full flex items-center justify-center mb-3">
                   <Shield className="w-6 h-6 text-blue-400" />
                 </div>
-                <p className="text-sm dark:text-gray-400 light:text-gray-500">
+                <p className="text-sm text-gray-500 dark:text-gray-400">
                   Enter the 6-digit code from your authenticator app, or use a backup code.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="totpCode" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                <label htmlFor="totpCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Verification Code
                 </label>
                 <input
@@ -184,7 +183,7 @@ export function Login() {
               <button
                 type="button"
                 onClick={handleBackToLogin}
-                className="w-full py-2 text-sm dark:text-gray-400 light:text-gray-500 hover:underline"
+                className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:underline"
               >
                 Back to login
               </button>
@@ -193,11 +192,11 @@ export function Login() {
             // Normal login / setup form
             <div className="space-y-5">
               <div>
-                <label htmlFor="username" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Username
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
                   <input
                     id="username"
                     type="text"
@@ -213,11 +212,11 @@ export function Login() {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
                   <input
                     id="password"
                     type="password"
@@ -233,11 +232,11 @@ export function Login() {
 
               {isSetup && (
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium dark:text-gray-300 light:text-gray-700 mb-2">
+                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Confirm Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 dark:text-gray-500 light:text-gray-400" />
+                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
                     <input
                       id="confirmPassword"
                       type="password"
@@ -268,7 +267,7 @@ export function Login() {
               </button>
 
               {isSetup && (
-                <p className="text-center text-sm dark:text-gray-400 light:text-gray-500">
+                <p className="text-center text-sm text-gray-500 dark:text-gray-400">
                   This will create the initial admin account for OwnPrem.
                 </p>
               )}
@@ -276,7 +275,7 @@ export function Login() {
           )}
         </form>
 
-        <p className="mt-6 text-center text-sm dark:text-gray-500 light:text-gray-400">
+        <p className="mt-6 text-center text-sm text-gray-400 dark:text-gray-500">
           Sovereign Bitcoin Infrastructure
         </p>
       </div>

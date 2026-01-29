@@ -96,7 +96,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
           <div>
             <label className="block text-sm font-medium mb-2">Select Server</label>
             {onlineServers.length === 0 ? (
-              <div className="bg-red-900/20 border border-red-800 rounded-lg p-4 text-red-400">
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 text-red-600 dark:text-red-400">
                 No servers online. Connect a server first.
               </div>
             ) : (
@@ -107,7 +107,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
                     className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                       selectedServer === server.id
                         ? 'border-bitcoin bg-bitcoin/10'
-                        : 'border-gray-700 hover:border-gray-600'
+                        : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600'
                     }`}
                   >
                     <input
@@ -123,7 +123,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
                     }`} />
                     <div>
                       <div className="font-medium">{server.name}</div>
-                      <div className="text-sm text-gray-400">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
                         {server.isCore ? 'Orchestrator' : server.host}
                       </div>
                     </div>
@@ -142,13 +142,13 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
                   Assign to Group
                 </span>
               </label>
-              <p className="text-sm text-gray-400 mb-3">
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
                 Select which group this app belongs to. Only members of this group will be able to manage it.
               </p>
               <select
                 value={selectedGroup}
                 onChange={(e) => setSelectedGroup(e.target.value)}
-                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-bitcoin"
+                className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:border-bitcoin"
               >
                 {groups.map((group) => (
                   <option key={group.id} value={group.id}>
@@ -165,7 +165,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
             <div>
               <label className="block text-sm font-medium mb-2">Dependencies</label>
               {validating ? (
-                <div className="flex items-center gap-2 text-gray-400">
+                <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                   <Loader2 size={16} className="animate-spin" />
                   Checking dependencies...
                 </div>
@@ -176,10 +176,10 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
                       key={dep.service}
                       className={`flex items-center gap-2 p-2 rounded ${
                         dep.satisfied
-                          ? 'bg-green-900/20 text-green-400'
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
                           : dep.optional
-                          ? 'bg-yellow-900/20 text-yellow-400'
-                          : 'bg-red-900/20 text-red-400'
+                          ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400'
+                          : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400'
                       }`}
                     >
                       {dep.satisfied ? (
@@ -233,17 +233,17 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
           )}
 
           {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t border-gray-700">
+          <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={onClose}
-              className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={() => setStep('configure')}
               disabled={!validation?.valid || !selectedServer}
-              className="flex-1 px-4 py-2 bg-bitcoin hover:bg-bitcoin/90 disabled:bg-gray-700 disabled:text-gray-500 text-black font-medium rounded transition-colors"
+              className="flex-1 px-4 py-2 bg-bitcoin hover:bg-bitcoin/90 disabled:bg-gray-200 dark:disabled:bg-gray-700 disabled:text-gray-500 text-black font-medium rounded transition-colors"
             >
               Next
             </button>
@@ -265,16 +265,16 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
               ))}
             </div>
           ) : (
-            <div className="text-gray-400 text-center py-8">
+            <div className="text-gray-400 text-gray-500 dark:text-gray-400 text-center py-8">
               No configuration needed. Ready to install!
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex gap-3 pt-4 border-t border-gray-700">
+          <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setStep('select')}
-              className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              className="flex-1 px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded transition-colors"
             >
               Back
             </button>
@@ -292,7 +292,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
         <div className="text-center py-12">
           <Loader2 size={48} className="mx-auto mb-4 animate-spin text-bitcoin" />
           <div className="text-lg font-medium mb-2">Installing {app?.displayName}...</div>
-          <div className="text-gray-400">This may take a few minutes</div>
+          <div className="text-gray-500 dark:text-gray-400">This may take a few minutes</div>
         </div>
       )}
     </Modal>
@@ -318,7 +318,7 @@ function ConfigFieldInput({
       </label>
 
       {field.description && (
-        <p className="text-sm text-gray-400 mb-2">{field.description}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">{field.description}</p>
       )}
 
       {field.type === 'select' && field.options ? (
@@ -326,7 +326,7 @@ function ConfigFieldInput({
           id={id}
           value={String(value || '')}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-bitcoin"
+          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:border-bitcoin"
         >
           {field.options.map((opt) => (
             <option key={opt} value={opt}>
@@ -340,9 +340,9 @@ function ConfigFieldInput({
             type="checkbox"
             checked={Boolean(value)}
             onChange={(e) => onChange(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-700 bg-gray-900 text-bitcoin focus:ring-bitcoin"
+            className="w-4 h-4 rounded border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-bitcoin focus:ring-bitcoin"
           />
-          <span className="text-gray-300">Enabled</span>
+          <span className="text-gray-600 dark:text-gray-300">Enabled</span>
         </label>
       ) : field.type === 'number' ? (
         <input
@@ -350,7 +350,7 @@ function ConfigFieldInput({
           type="number"
           value={String(value || '')}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-bitcoin"
+          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:border-bitcoin"
         />
       ) : (
         <input
@@ -358,7 +358,7 @@ function ConfigFieldInput({
           type={field.type === 'password' ? 'password' : 'text'}
           value={String(value || '')}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-bitcoin"
+          className="w-full px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded focus:outline-none focus:border-bitcoin"
         />
       )}
     </div>

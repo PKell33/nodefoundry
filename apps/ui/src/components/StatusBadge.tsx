@@ -43,7 +43,7 @@ export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
       <span
         className={`w-2 h-2 rounded-full ${color} ${isAnimated ? 'animate-pulse' : ''}`}
       />
-      <span className="text-gray-300">{label}</span>
+      <span className="text-gray-600 dark:text-gray-300">{label}</span>
     </span>
   );
 }

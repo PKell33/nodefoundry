@@ -58,12 +58,12 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
     >
       <div className="flex items-start justify-between mb-2 md:mb-3">
         <div className="flex items-center gap-2 md:gap-3 min-w-0">
-          <div className="p-1.5 md:p-2 rounded-lg flex-shrink-0 dark:bg-gray-700 light:bg-gray-100">
-            <Server size={18} className={server.isCore ? 'text-bitcoin' : 'dark:text-gray-400 light:text-gray-500'} />
+          <div className="p-1.5 md:p-2 rounded-lg flex-shrink-0 bg-gray-100 dark:bg-gray-700">
+            <Server size={18} className={server.isCore ? 'text-bitcoin' : 'text-gray-500 dark:text-gray-400'} />
           </div>
           <div className="min-w-0">
             <h3 className="font-medium text-sm md:text-base truncate">{server.name}</h3>
-            <p className="text-xs md:text-sm dark:text-gray-400 light:text-gray-500 truncate">
+            <p className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate">
               {server.isCore ? 'Orchestrator' : server.host || 'Unknown'}
             </p>
           </div>
@@ -79,7 +79,7 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                   setConfirmDelete(false);
                   setConfirmRegenerate(false);
                 }}
-                className="p-1 rounded hover:bg-gray-700 dark:hover:bg-gray-700 light:hover:bg-gray-200 transition-colors"
+                className="p-1 rounded hover:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
               >
                 <MoreVertical size={16} />
               </button>
@@ -95,13 +95,11 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                     }}
                   />
                   <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[180px]
-                    dark:bg-gray-800 dark:border dark:border-gray-700
-                    light:bg-white light:border light:border-gray-200">
+                    bg-white border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
                     <button
                       onClick={handleViewGuide}
                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
-                        dark:text-gray-300 dark:hover:bg-gray-700
-                        light:text-gray-700 light:hover:bg-gray-100"
+                        text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700"
                     >
                       <FileText size={14} />
                       Setup Guide
@@ -111,13 +109,13 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                       className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
                         ${confirmRegenerate
                           ? 'text-yellow-500 hover:bg-yellow-500/10'
-                          : 'dark:text-gray-300 dark:hover:bg-gray-700 light:text-gray-700 light:hover:bg-gray-100'
+                          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                         }`}
                     >
                       <KeyRound size={14} />
                       {confirmRegenerate ? 'Confirm (invalidates token)' : 'Generate New Token'}
                     </button>
-                    <div className="my-1 border-t dark:border-gray-700 light:border-gray-200" />
+                    <div className="my-1 border-t border-gray-200 dark:border-gray-700" />
                     <button
                       onClick={handleDelete}
                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
@@ -135,7 +133,7 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
       </div>
 
       {metrics && server.agentStatus === 'online' && (
-        <div className="grid grid-cols-3 gap-1 md:gap-2 mt-2 md:mt-3 pt-2 md:pt-3 border-t dark:border-gray-700 light:border-gray-200">
+        <div className="grid grid-cols-3 gap-1 md:gap-2 mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-200 dark:border-gray-700">
           <MetricItem
             icon={<Cpu size={12} />}
             label="CPU"
@@ -154,7 +152,7 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
         </div>
       )}
 
-      <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t dark:border-gray-700 light:border-gray-200 text-xs md:text-sm dark:text-gray-400 light:text-gray-500">
+      <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-gray-200 dark:border-gray-700 text-xs md:text-sm text-gray-500 dark:text-gray-400">
         {deploymentCount} app{deploymentCount !== 1 ? 's' : ''} deployed
       </div>
     </div>
@@ -164,7 +162,7 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
 function MetricItem({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return (
     <div className="text-center">
-      <div className="flex items-center justify-center gap-1 dark:text-gray-400 light:text-gray-500 mb-0.5 md:mb-1">
+      <div className="flex items-center justify-center gap-1 text-gray-500 dark:text-gray-400 mb-0.5 md:mb-1">
         {icon}
         <span className="text-[10px] md:text-xs">{label}</span>
       </div>

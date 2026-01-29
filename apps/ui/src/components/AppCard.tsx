@@ -18,21 +18,22 @@ export default function AppCard({ app, deployment, conflictsWith, onClick }: App
   return (
     <div
       onClick={onClick}
-      className={`bg-gray-800 rounded-xl border p-6 cursor-pointer transition-all group ${
-        isBlocked
-          ? 'border-gray-700 opacity-60'
-          : 'border-gray-700 hover:border-gray-600 hover:bg-gray-750'
-      }`}
+      className={`rounded-xl border p-6 cursor-pointer transition-all group
+        bg-white dark:bg-gray-800
+        ${isBlocked
+          ? 'border-gray-200 dark:border-gray-700 opacity-60'
+          : 'border-gray-200 dark:border-gray-700 hover:border-gray-300 dark:hover:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-750'
+        }`}
     >
       <div className="flex flex-col items-center text-center">
         {/* Large Icon */}
         <div className="mb-4 relative">
-          <div className="w-20 h-20 rounded-2xl bg-gray-700 flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform">
+          <div className="w-20 h-20 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform">
             <AppIcon appName={app.name} size={64} />
           </div>
           {/* Status indicator dot */}
           {isInstalled && (
-            <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-gray-800 ${
+            <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-white dark:border-gray-800 ${
               isRunning ? 'bg-green-500' :
               deployment?.status === 'error' ? 'bg-red-500' :
               'bg-yellow-500'
@@ -44,10 +45,10 @@ export default function AppCard({ app, deployment, conflictsWith, onClick }: App
         <h3 className="font-semibold text-lg mb-1">{app.displayName}</h3>
 
         {/* Version */}
-        <p className="text-sm text-gray-500 mb-2">v{app.version}</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500 mb-2">v{app.version}</p>
 
         {/* Brief Description - truncated to 2 lines */}
-        <p className="text-sm text-gray-400 line-clamp-2 mb-3">
+        <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-3">
           {app.description}
         </p>
 
@@ -66,7 +67,7 @@ export default function AppCard({ app, deployment, conflictsWith, onClick }: App
 
         {/* Install hint if not installed and not blocked */}
         {!isInstalled && !isBlocked && (
-          <span className="text-xs text-gray-500">Click to install</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">Click to install</span>
         )}
       </div>
     </div>

@@ -56,14 +56,14 @@ export default function Layout() {
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
-        <div className="p-4 border-b border-gray-700 dark:border-gray-700 light:border-gray-200 flex items-center justify-between">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
           <h1 className="text-xl font-bold">
             <span className="text-bitcoin">O</span>wnPrem
           </h1>
           {/* Mobile close button */}
           <button
             onClick={() => setSidebarOpen(false)}
-            className="md:hidden p-1 rounded hover:bg-gray-700 dark:hover:bg-gray-700 light:hover:bg-gray-200"
+            className="md:hidden p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700"
           >
             <X size={20} />
           </button>
@@ -77,12 +77,11 @@ export default function Layout() {
         </nav>
 
         {/* Theme toggle */}
-        <div className="px-4 py-2 border-t border-gray-700 dark:border-gray-700 light:border-gray-200">
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={toggleTheme}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors
-              dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700/50
-              light:text-gray-600 light:hover:text-gray-900 light:hover:bg-gray-200/50"
+              text-gray-600 hover:text-gray-900 hover:bg-gray-200/50 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-700/50"
           >
             {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
             <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
@@ -90,53 +89,51 @@ export default function Layout() {
         </div>
 
         {/* Connection status */}
-        <div className="px-4 py-2 border-t border-gray-700 dark:border-gray-700 light:border-gray-200">
+        <div className="px-4 py-2 border-t border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2 text-sm">
             {connected ? (
               <>
                 <Wifi size={16} className="text-green-500" />
-                <span className="dark:text-gray-400 light:text-gray-500">Connected</span>
+                <span className="text-gray-500 dark:text-gray-400">Connected</span>
               </>
             ) : (
               <>
                 <WifiOff size={16} className="text-red-500" />
-                <span className="dark:text-gray-400 light:text-gray-500">Disconnected</span>
+                <span className="text-gray-500 dark:text-gray-400">Disconnected</span>
               </>
             )}
           </div>
         </div>
 
         {/* User menu */}
-        <div className="relative border-t border-gray-700 dark:border-gray-700 light:border-gray-200">
+        <div className="relative border-t border-gray-200 dark:border-gray-700">
           <button
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="w-full p-4 flex items-center gap-3 transition-colors
-              dark:hover:bg-gray-700/50 light:hover:bg-gray-200/50"
+              hover:bg-gray-200/50 dark:hover:bg-gray-700/50"
           >
-            <div className="w-8 h-8 bg-gray-600 dark:bg-gray-600 light:bg-gray-300 rounded-full flex items-center justify-center">
-              <User size={16} className="dark:text-gray-300 light:text-gray-600" />
+            <div className="w-8 h-8 bg-gray-300 dark:bg-gray-600 rounded-full flex items-center justify-center">
+              <User size={16} className="text-gray-600 dark:text-gray-300" />
             </div>
             <div className="flex-1 text-left">
               <p className="text-sm font-medium">{user?.username || 'User'}</p>
-              <p className="text-xs dark:text-gray-400 light:text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 {user?.isSystemAdmin ? 'System Admin' : user?.groups?.[0]?.role || 'User'}
               </p>
             </div>
             <ChevronUp
               size={16}
-              className={`dark:text-gray-400 light:text-gray-500 transition-transform ${showUserMenu ? '' : 'rotate-180'}`}
+              className={`text-gray-500 dark:text-gray-400 transition-transform ${showUserMenu ? '' : 'rotate-180'}`}
             />
           </button>
 
           {showUserMenu && (
             <div className="absolute bottom-full left-0 right-0 rounded-t-lg shadow-lg overflow-hidden
-              dark:bg-gray-800 dark:border dark:border-gray-700
-              light:bg-white light:border light:border-gray-200">
+              bg-white border border-gray-200 dark:bg-gray-800 dark:border-gray-700">
               <button
                 onClick={handleLogout}
                 className="w-full px-4 py-3 flex items-center gap-3 transition-colors
-                  dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white
-                  light:text-gray-600 light:hover:bg-gray-100 light:hover:text-gray-900"
+                  text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-gray-700 dark:hover:text-white"
               >
                 <LogOut size={16} />
                 <span>Sign out</span>
@@ -150,13 +147,12 @@ export default function Layout() {
       <main className="flex-1 overflow-auto min-w-0 md:ml-64">
         {/* Mobile header */}
         <div className="md:hidden sticky top-0 z-30 p-4 border-b
-          dark:bg-gray-900 dark:border-gray-700
-          light:bg-white light:border-gray-200">
+          bg-white border-gray-200 dark:bg-gray-900 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <button
               onClick={() => setSidebarOpen(true)}
               className="p-2 rounded-lg transition-colors
-                dark:hover:bg-gray-800 light:hover:bg-gray-100"
+                hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               <Menu size={24} />
             </button>
@@ -166,7 +162,7 @@ export default function Layout() {
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg transition-colors
-                dark:hover:bg-gray-800 light:hover:bg-gray-100"
+                hover:bg-gray-100 dark:hover:bg-gray-800"
             >
               {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
             </button>

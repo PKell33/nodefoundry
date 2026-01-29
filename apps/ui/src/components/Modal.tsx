@@ -39,14 +39,15 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' }:
 
       {/* Modal */}
       <div
-        className={`relative bg-gray-800 rounded-lg shadow-xl border border-gray-700 w-full ${sizeClasses[size]} mx-4 max-h-[90vh] overflow-hidden flex flex-col`}
+        className={`relative rounded-lg shadow-xl border w-full ${sizeClasses[size]} mx-4 max-h-[90vh] overflow-hidden flex flex-col
+          bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-700">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold">{title}</h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            className="p-1 rounded transition-colors hover:bg-gray-100 dark:hover:bg-gray-700"
           >
             <X size={20} />
           </button>

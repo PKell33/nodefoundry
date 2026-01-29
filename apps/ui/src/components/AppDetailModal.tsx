@@ -50,20 +50,20 @@ export default function AppDetailModal({
       <div className="space-y-6">
         {/* Header with Icon and Name */}
         <div className="flex items-start gap-6">
-          <div className="w-24 h-24 rounded-2xl bg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+          <div className="w-24 h-24 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
             <AppIcon appName={app.name} size={80} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold">{app.displayName}</h2>
-                <p className="text-gray-400">v{app.version}</p>
+                <p className="text-gray-500 dark:text-gray-400">v{app.version}</p>
               </div>
               {isInstalled && (
                 <StatusBadge status={deployment.status} />
               )}
             </div>
-            <p className="text-gray-400 mt-2">{app.description}</p>
+            <p className="text-gray-500 dark:text-gray-400 mt-2">{app.description}</p>
             {groupName && (
               <div className="flex items-center gap-1 mt-2 text-sm text-gray-500">
                 <Users size={14} />
@@ -124,7 +124,7 @@ export default function AppDetailModal({
                   href={app.webui.basePath}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
                 >
                   <ExternalLink size={18} />
                   Open UI
@@ -133,7 +133,7 @@ export default function AppDetailModal({
               {isInstalled && hasServices && canManage && (
                 <button
                   onClick={() => setShowConnectionInfo(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
                 >
                   <Link size={18} />
                   Connection Info
@@ -153,12 +153,12 @@ export default function AppDetailModal({
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-700">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-200 dark:border-gray-700">
           {/* Source */}
           <div>
             <h3 className="text-sm font-medium text-gray-300 mb-3">Source</h3>
             <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2 text-gray-400">
+              <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
                 {app.source.type === 'binary' && <Download size={14} />}
                 {app.source.type === 'git' && <GitBranch size={14} />}
                 <span className="capitalize">{app.source.type}</span>
@@ -181,7 +181,7 @@ export default function AppDetailModal({
           {/* Category */}
           <div>
             <h3 className="text-sm font-medium text-gray-300 mb-3">Category</h3>
-            <span className="inline-block px-3 py-1 bg-gray-700 rounded-full text-sm capitalize">
+            <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full text-sm capitalize">
               {app.category}
             </span>
           </div>
@@ -192,8 +192,8 @@ export default function AppDetailModal({
               <h3 className="text-sm font-medium text-gray-300 mb-3">Services Provided</h3>
               <div className="space-y-2">
                 {app.provides.map((service) => (
-                  <div key={service.name} className="flex items-center justify-between text-sm bg-gray-900 px-3 py-2 rounded-lg">
-                    <span className="text-gray-300">{service.name}</span>
+                  <div key={service.name} className="flex items-center justify-between text-sm bg-gray-100 dark:bg-gray-900 px-3 py-2 rounded-lg">
+                    <span className="text-gray-700 dark:text-gray-300">{service.name}</span>
                     <span className="text-gray-500">:{service.port} ({service.protocol})</span>
                   </div>
                 ))}
@@ -207,8 +207,8 @@ export default function AppDetailModal({
               <h3 className="text-sm font-medium text-gray-300 mb-3">Dependencies</h3>
               <div className="space-y-2">
                 {app.requires.map((req) => (
-                  <div key={req.service} className="flex items-center justify-between text-sm bg-gray-900 px-3 py-2 rounded-lg">
-                    <span className="text-gray-300">{req.service}</span>
+                  <div key={req.service} className="flex items-center justify-between text-sm bg-gray-100 dark:bg-gray-900 px-3 py-2 rounded-lg">
+                    <span className="text-gray-700 dark:text-gray-300">{req.service}</span>
                     <span className="text-gray-500 text-xs">{req.locality}</span>
                   </div>
                 ))}
@@ -235,7 +235,7 @@ export default function AppDetailModal({
           {app.resources && (app.resources.minDisk || app.resources.minMemory) && (
             <div>
               <h3 className="text-sm font-medium text-gray-300 mb-3">Requirements</h3>
-              <div className="flex gap-4 text-sm text-gray-400">
+              <div className="flex gap-4 text-sm text-gray-500 dark:text-gray-400">
                 {app.resources.minDisk && <span>Disk: {app.resources.minDisk}</span>}
                 {app.resources.minMemory && <span>Memory: {app.resources.minMemory}</span>}
               </div>

@@ -95,7 +95,7 @@ export default function ConnectionInfoModal({ deploymentId, isOpen, onClose }: C
         </div>
       ) : connectionInfo ? (
         <div className="space-y-6">
-          <p className="text-gray-400 text-sm">
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
             Use these details to connect external apps like Fully Noded, Zeus, Sparrow, or Electrum.
           </p>
 
@@ -143,10 +143,10 @@ function ServiceConnectionCard({
   const isHttpService = service.protocol === 'http';
 
   return (
-    <div className="bg-gray-900 rounded-lg p-4 space-y-4">
+    <div className="bg-gray-100 dark:bg-gray-900 rounded-lg p-4 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-semibold text-lg">{service.serviceName}</h3>
-        <span className="text-xs bg-gray-700 px-2 py-1 rounded">{service.protocol.toUpperCase()}</span>
+        <span className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded">{service.protocol.toUpperCase()}</span>
       </div>
 
       {/* Proxied Connection (Recommended) */}
@@ -188,19 +188,19 @@ function ServiceConnectionCard({
       </div>
 
       {/* Direct Connection (Internal) */}
-      <div className="pt-2 border-t border-gray-800 space-y-2">
+      <div className="pt-2 border-t border-gray-200 dark:border-gray-800 space-y-2">
         <div className="text-sm font-medium text-gray-500 flex items-center gap-1">
           <Server size={14} />
           Direct Connection (internal only)
         </div>
-        <div className="text-xs bg-gray-800 rounded px-3 py-2 text-gray-400 font-mono">
+        <div className="text-xs bg-gray-50 dark:bg-gray-800 rounded px-3 py-2 text-gray-600 dark:text-gray-400 font-mono">
           {service.directHost}:{service.directPort}
         </div>
       </div>
 
       {/* Tor Address */}
       {service.torAddress && (
-        <div className="pt-2 border-t border-gray-800">
+        <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
           <ConnectionField
             icon={<Globe size={14} />}
             label="Tor Address"
@@ -214,8 +214,8 @@ function ServiceConnectionCard({
 
       {/* Credentials */}
       {service.credentials && Object.keys(service.credentials).length > 0 && (
-        <div className="pt-2 border-t border-gray-800 space-y-2">
-          <div className="text-sm font-medium text-gray-400 flex items-center gap-1">
+        <div className="pt-2 border-t border-gray-200 dark:border-gray-800 space-y-2">
+          <div className="text-sm font-medium text-gray-600 dark:text-gray-400 flex items-center gap-1">
             <Key size={14} />
             Credentials
           </div>
@@ -235,7 +235,7 @@ function ServiceConnectionCard({
       )}
 
       {/* QR Code Section */}
-      <div className="pt-2 border-t border-gray-800">
+      <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowQR(showQR === `${serviceKey}-proxy` ? null : `${serviceKey}-proxy`)}
@@ -284,15 +284,15 @@ interface ConnectionFieldProps {
 
 function ConnectionField({ icon, label, value, copyKey, copied, onCopy }: ConnectionFieldProps) {
   return (
-    <div className="flex items-center justify-between bg-gray-800 rounded px-3 py-2">
+    <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded px-3 py-2">
       <div className="flex items-center gap-2 text-sm">
-        <span className="text-gray-500">{icon}</span>
-        <span className="text-gray-400">{label}:</span>
-        <span className="font-mono text-gray-200">{value}</span>
+        <span className="text-gray-400 dark:text-gray-500">{icon}</span>
+        <span className="text-gray-500 dark:text-gray-400">{label}:</span>
+        <span className="font-mono text-gray-800 dark:text-gray-200">{value}</span>
       </div>
       <button
         onClick={() => onCopy(value, copyKey)}
-        className="p-1 hover:bg-gray-700 rounded transition-colors"
+        className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
         title="Copy to clipboard"
       >
         {copied === copyKey ? (
@@ -319,15 +319,15 @@ function CredentialField({ label, value, isVisible, onToggle, copyKey, copied, o
   const displayValue = isVisible ? value : '••••••••••••••••';
 
   return (
-    <div className="flex items-center justify-between bg-gray-800 rounded px-3 py-2">
+    <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded px-3 py-2">
       <div className="flex items-center gap-2 text-sm min-w-0 flex-1">
-        <span className="text-gray-400 shrink-0">{label}:</span>
-        <span className="font-mono text-gray-200 truncate">{displayValue}</span>
+        <span className="text-gray-500 dark:text-gray-400 shrink-0">{label}:</span>
+        <span className="font-mono text-gray-800 dark:text-gray-200 truncate">{displayValue}</span>
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <button
           onClick={onToggle}
-          className="p-1 hover:bg-gray-700 rounded transition-colors"
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
           title={isVisible ? 'Hide' : 'Show'}
         >
           {isVisible ? (
@@ -338,7 +338,7 @@ function CredentialField({ label, value, isVisible, onToggle, copyKey, copied, o
         </button>
         <button
           onClick={() => onCopy(value, copyKey)}
-          className="p-1 hover:bg-gray-700 rounded transition-colors"
+          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded transition-colors"
           title="Copy to clipboard"
         >
           {copied === copyKey ? (
