@@ -11,7 +11,9 @@ export default function Servers() {
   const { data: deployments } = useDeployments();
   const { user } = useAuthStore();
   const [addModalOpen, setAddModalOpen] = useState(false);
+  const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [bootstrapCommand, setBootstrapCommand] = useState<string | null>(null);
+  const [setupServerName, setSetupServerName] = useState<string>('');
   const [copied, setCopied] = useState(false);
 
   const canManage = user?.isSystemAdmin ?? false;
@@ -32,6 +34,17 @@ export default function Servers() {
       refetch();
     } catch (err) {
       console.error('Failed to delete server:', err);
+    }
+  };
+
+  const handleSetupServer = async (serverId: string, serverName: string) => {
+    try {
+      const result = await api.regenerateServerToken(serverId);
+      setBootstrapCommand(result.bootstrapCommand);
+      setSetupServerName(serverName);
+      setSetupModalOpen(true);
+    } catch (err) {
+      console.error('Failed to regenerate token:', err);
     }
   };
 
@@ -73,6 +86,7 @@ export default function Servers() {
                 deploymentCount={serverDeployments.length}
                 canManage={canManage}
                 onDelete={() => handleDeleteServer(server.id)}
+                onSetup={() => handleSetupServer(server.id, server.name)}
               />
             );
           })}
@@ -164,6 +178,84 @@ export default function Servers() {
           </div>
         ) : (
           <AddServerForm onSubmit={handleAddServer} />
+        )}
+      </Modal>
+
+      {/* Setup Server Modal (for regenerated token) */}
+      <Modal
+        isOpen={setupModalOpen}
+        onClose={() => {
+          setSetupModalOpen(false);
+          setBootstrapCommand(null);
+          setSetupServerName('');
+        }}
+        title={`Connect ${setupServerName}`}
+        size="lg"
+      >
+        {bootstrapCommand && (
+          <div className="space-y-6">
+            <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+              <AlertTriangle size={20} className="text-yellow-500 flex-shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-medium text-yellow-500">New token generated</p>
+                <p className="text-gray-400 mt-1">
+                  The previous token has been invalidated. Use this new command to connect the agent.
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="font-medium mb-3 flex items-center gap-2">
+                <Terminal size={16} />
+                Setup Instructions
+              </h3>
+              <ol className="space-y-4 text-sm text-gray-400">
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-bitcoin text-black flex items-center justify-center text-xs font-bold">1</span>
+                  <div>
+                    <p className="text-gray-200">SSH into your server</p>
+                    <p className="text-xs mt-1">Ensure you have root or sudo access</p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-bitcoin text-black flex items-center justify-center text-xs font-bold">2</span>
+                  <div>
+                    <p className="text-gray-200">Run the install command</p>
+                    <div className="relative mt-2">
+                      <pre className="bg-gray-900 p-3 rounded-lg text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                        {bootstrapCommand}
+                      </pre>
+                      <button
+                        onClick={() => copyToClipboard()}
+                        className="absolute top-2 right-2 p-1.5 bg-gray-800 hover:bg-gray-700 rounded transition-colors"
+                        title="Copy to clipboard"
+                      >
+                        {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-bitcoin text-black flex items-center justify-center text-xs font-bold">3</span>
+                  <div>
+                    <p className="text-gray-200">Wait for connection</p>
+                    <p className="text-xs mt-1">The server status will change to "online" once the agent connects</p>
+                  </div>
+                </li>
+              </ol>
+            </div>
+
+            <button
+              onClick={() => {
+                setSetupModalOpen(false);
+                setBootstrapCommand(null);
+                setSetupServerName('');
+              }}
+              className="w-full px-4 py-2 bg-bitcoin hover:bg-bitcoin/90 text-black font-medium rounded transition-colors"
+            >
+              Done
+            </button>
+          </div>
         )}
       </Modal>
     </div>

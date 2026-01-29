@@ -178,6 +178,13 @@ export const api = {
     return fetchWithAuth<void>(`${API_BASE}/servers/${id}`, { method: 'DELETE' });
   },
 
+  async regenerateServerToken(id: string) {
+    return fetchWithAuth<{ server: Server; bootstrapCommand: string }>(
+      `${API_BASE}/servers/${id}/regenerate-token`,
+      { method: 'POST' }
+    );
+  },
+
   // Apps
   async getApps() {
     return fetchWithAuth<AppManifest[]>(`${API_BASE}/apps`);

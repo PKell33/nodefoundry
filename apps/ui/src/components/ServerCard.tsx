@@ -1,4 +1,4 @@
-import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical } from 'lucide-react';
+import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical, Terminal, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import type { Server as ServerType } from '../api/client';
 import StatusBadge from './StatusBadge';
@@ -8,13 +8,15 @@ interface ServerCardProps {
   deploymentCount?: number;
   onClick?: () => void;
   onDelete?: () => void;
+  onSetup?: () => void;
   canManage?: boolean;
 }
 
-export default function ServerCard({ server, deploymentCount = 0, onClick, onDelete, canManage = false }: ServerCardProps) {
+export default function ServerCard({ server, deploymentCount = 0, onClick, onDelete, onSetup, canManage = false }: ServerCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const metrics = server.metrics;
+  const isOffline = server.agentStatus === 'offline';
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -25,6 +27,12 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
     } else {
       setConfirmDelete(true);
     }
+  };
+
+  const handleSetup = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetup?.();
+    setShowMenu(false);
   };
 
   return (
@@ -70,9 +78,29 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                       setConfirmDelete(false);
                     }}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[140px]
+                  <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[160px]
                     dark:bg-gray-800 dark:border dark:border-gray-700
                     light:bg-white light:border light:border-gray-200">
+                    {isOffline && (
+                      <button
+                        onClick={handleSetup}
+                        className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
+                          dark:text-gray-300 dark:hover:bg-gray-700
+                          light:text-gray-700 light:hover:bg-gray-100"
+                      >
+                        <Terminal size={14} />
+                        Setup Instructions
+                      </button>
+                    )}
+                    <button
+                      onClick={handleSetup}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
+                        dark:text-gray-300 dark:hover:bg-gray-700
+                        light:text-gray-700 light:hover:bg-gray-100"
+                    >
+                      <KeyRound size={14} />
+                      Regenerate Token
+                    </button>
                     <button
                       onClick={handleDelete}
                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors

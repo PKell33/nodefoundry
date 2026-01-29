@@ -161,4 +161,36 @@ router.delete('/:id', requireAuth, canManageServers, (req, res) => {
   res.status(204).send();
 });
 
+// POST /api/servers/:id/regenerate-token - Regenerate auth token (system admin only)
+router.post('/:id/regenerate-token', requireAuth, canManageServers, (req, res) => {
+  const db = getDb();
+
+  const existing = db.prepare('SELECT * FROM servers WHERE id = ?').get(req.params.id) as ServerRow | undefined;
+  if (!existing) {
+    throw createError('Server not found', 404, 'SERVER_NOT_FOUND');
+  }
+
+  if (existing.is_foundry) {
+    throw createError('Cannot regenerate token for foundry server', 400, 'CANNOT_MODIFY_FOUNDRY');
+  }
+
+  // Generate new token
+  const rawAuthToken = randomBytes(32).toString('hex');
+  const hashedAuthToken = hashToken(rawAuthToken);
+
+  // Update the token in database
+  db.prepare(`
+    UPDATE servers SET auth_token = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(hashedAuthToken, req.params.id);
+
+  // Return bootstrap command with the new token
+  const bootstrapCommand = `curl -sSL http://${req.get('host')}/agent/install.sh | sudo bash -s -- --foundry http://${req.get('host')} --token ${rawAuthToken} --id ${req.params.id}`;
+
+  res.json({
+    server: rowToServer(db.prepare('SELECT * FROM servers WHERE id = ?').get(req.params.id) as ServerRow),
+    bootstrapCommand,
+  });
+});
+
 export default router;
