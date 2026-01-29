@@ -115,7 +115,7 @@ router.put('/:id', requireAuth, canManageServers, (req, res) => {
   }
 
   if (existing.is_core) {
-    throw createError('Cannot modify foundry server', 400, 'CANNOT_MODIFY_FOUNDRY');
+    throw createError('Cannot modify core server', 400, 'CANNOT_MODIFY_CORE');
   }
 
   const updates: string[] = [];
@@ -154,7 +154,7 @@ router.delete('/:id', requireAuth, canManageServers, (req, res) => {
   }
 
   if (existing.is_core) {
-    throw createError('Cannot delete foundry server', 400, 'CANNOT_DELETE_FOUNDRY');
+    throw createError('Cannot delete core server', 400, 'CANNOT_DELETE_CORE');
   }
 
   db.prepare('DELETE FROM servers WHERE id = ?').run(req.params.id);
@@ -171,7 +171,7 @@ router.post('/:id/regenerate-token', requireAuth, canManageServers, (req, res) =
   }
 
   if (existing.is_core) {
-    throw createError('Cannot regenerate token for foundry server', 400, 'CANNOT_MODIFY_FOUNDRY');
+    throw createError('Cannot regenerate token for core server', 400, 'CANNOT_MODIFY_CORE');
   }
 
   // Generate new token

@@ -123,7 +123,7 @@ class Agent {
 }
 
 // Entry point
-const serverId = process.env.SERVER_ID || 'foundry';
+const serverId = process.env.SERVER_ID || 'core';
 const foundryUrl = process.env.FOUNDRY_URL || 'http://localhost:3001';
 const authToken = process.env.AUTH_TOKEN || null;
 

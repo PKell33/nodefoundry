@@ -169,17 +169,17 @@ describe('API Endpoints', () => {
 
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body)).toBe(true);
-      // Should have foundry server from schema init
-      expect(res.body.some((s: any) => s.id === 'foundry')).toBe(true);
+      // Should have core server from schema init
+      expect(res.body.some((s: any) => s.id === 'core')).toBe(true);
     });
 
     it('GET /api/servers/:id should return specific server', async () => {
       const res = await request(app)
-        .get('/api/servers/foundry')
+        .get('/api/servers/core')
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.id).toBe('foundry');
+      expect(res.body.id).toBe('core');
       expect(res.body.isCore).toBe(true);
     });
 
