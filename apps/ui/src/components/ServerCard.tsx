@@ -1,4 +1,4 @@
-import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical, Terminal } from 'lucide-react';
+import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical, FileText, KeyRound } from 'lucide-react';
 import { useState } from 'react';
 import type { Server as ServerType } from '../api/client';
 import StatusBadge from './StatusBadge';
@@ -8,16 +8,16 @@ interface ServerCardProps {
   deploymentCount?: number;
   onClick?: () => void;
   onDelete?: () => void;
-  onSetup?: () => void;
+  onRegenerate?: () => void;
+  onViewGuide?: () => void;
   canManage?: boolean;
 }
 
-export default function ServerCard({ server, deploymentCount = 0, onClick, onDelete, onSetup, canManage = false }: ServerCardProps) {
+export default function ServerCard({ server, deploymentCount = 0, onClick, onDelete, onRegenerate, onViewGuide, canManage = false }: ServerCardProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [confirmReconnect, setConfirmReconnect] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const metrics = server.metrics;
-  const isOffline = server.agentStatus === 'offline';
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -27,20 +27,25 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
       setShowMenu(false);
     } else {
       setConfirmDelete(true);
-      setConfirmReconnect(false);
+      setConfirmRegenerate(false);
     }
   };
 
-  const handleSetup = (e: React.MouseEvent) => {
+  const handleViewGuide = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // For online servers, require confirmation since it will disconnect the agent
-    if (!isOffline && !confirmReconnect) {
-      setConfirmReconnect(true);
+    onViewGuide?.();
+    setShowMenu(false);
+  };
+
+  const handleRegenerate = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirmRegenerate) {
+      setConfirmRegenerate(true);
       setConfirmDelete(false);
       return;
     }
-    onSetup?.();
-    setConfirmReconnect(false);
+    onRegenerate?.();
+    setConfirmRegenerate(false);
     setShowMenu(false);
   };
 
@@ -72,7 +77,7 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                   e.stopPropagation();
                   setShowMenu(!showMenu);
                   setConfirmDelete(false);
-                  setConfirmReconnect(false);
+                  setConfirmRegenerate(false);
                 }}
                 className="p-1 rounded hover:bg-gray-700 dark:hover:bg-gray-700 light:hover:bg-gray-200 transition-colors"
               >
@@ -86,25 +91,33 @@ export default function ServerCard({ server, deploymentCount = 0, onClick, onDel
                       e.stopPropagation();
                       setShowMenu(false);
                       setConfirmDelete(false);
-                      setConfirmReconnect(false);
+                      setConfirmRegenerate(false);
                     }}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[160px]
+                  <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[180px]
                     dark:bg-gray-800 dark:border dark:border-gray-700
                     light:bg-white light:border light:border-gray-200">
                     <button
-                      onClick={handleSetup}
+                      onClick={handleViewGuide}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
+                        dark:text-gray-300 dark:hover:bg-gray-700
+                        light:text-gray-700 light:hover:bg-gray-100"
+                    >
+                      <FileText size={14} />
+                      Setup Guide
+                    </button>
+                    <button
+                      onClick={handleRegenerate}
                       className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
-                        ${confirmReconnect
+                        ${confirmRegenerate
                           ? 'text-yellow-500 hover:bg-yellow-500/10'
                           : 'dark:text-gray-300 dark:hover:bg-gray-700 light:text-gray-700 light:hover:bg-gray-100'
                         }`}
                     >
-                      <Terminal size={14} />
-                      {confirmReconnect
-                        ? 'Confirm (will disconnect agent)'
-                        : isOffline ? 'Connect Server' : 'Reconnect Server'}
+                      <KeyRound size={14} />
+                      {confirmRegenerate ? 'Confirm (invalidates token)' : 'Generate New Token'}
                     </button>
+                    <div className="my-1 border-t dark:border-gray-700 light:border-gray-200" />
                     <button
                       onClick={handleDelete}
                       className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors

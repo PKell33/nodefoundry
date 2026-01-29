@@ -12,6 +12,7 @@ export default function Servers() {
   const { user } = useAuthStore();
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
+  const [guideModalOpen, setGuideModalOpen] = useState(false);
   const [bootstrapCommand, setBootstrapCommand] = useState<string | null>(null);
   const [setupServerName, setSetupServerName] = useState<string>('');
   const [copied, setCopied] = useState(false);
@@ -37,7 +38,12 @@ export default function Servers() {
     }
   };
 
-  const handleSetupServer = async (serverId: string, serverName: string) => {
+  const handleViewGuide = (serverName: string) => {
+    setSetupServerName(serverName);
+    setGuideModalOpen(true);
+  };
+
+  const handleRegenerateToken = async (serverId: string, serverName: string) => {
     try {
       const result = await api.regenerateServerToken(serverId);
       setBootstrapCommand(result.bootstrapCommand);
@@ -86,7 +92,8 @@ export default function Servers() {
                 deploymentCount={serverDeployments.length}
                 canManage={canManage}
                 onDelete={() => handleDeleteServer(server.id)}
-                onSetup={() => handleSetupServer(server.id, server.name)}
+                onViewGuide={() => handleViewGuide(server.name)}
+                onRegenerate={() => handleRegenerateToken(server.id, server.name)}
               />
             );
           })}
@@ -257,6 +264,92 @@ export default function Servers() {
             </button>
           </div>
         )}
+      </Modal>
+
+      {/* Generic Setup Guide Modal (no token) */}
+      <Modal
+        isOpen={guideModalOpen}
+        onClose={() => {
+          setGuideModalOpen(false);
+          setSetupServerName('');
+        }}
+        title="Agent Setup Guide"
+        size="lg"
+      >
+        <div className="space-y-6">
+          <p className="text-sm text-gray-400">
+            This guide explains how to connect a server to Nodefoundry. To get the actual install command with
+            authentication token, click <strong>"Generate New Token"</strong> from the server menu.
+          </p>
+
+          <div>
+            <h3 className="font-medium mb-3 flex items-center gap-2">
+              <Terminal size={16} />
+              Setup Steps
+            </h3>
+            <ol className="space-y-4 text-sm text-gray-400">
+              <li className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-bold">1</span>
+                <div>
+                  <p className="text-gray-200">Prepare your server</p>
+                  <p className="text-xs mt-1">Fresh Ubuntu 22.04+ or Debian 12+ installation with root access</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-bold">2</span>
+                <div>
+                  <p className="text-gray-200">Ensure network connectivity</p>
+                  <p className="text-xs mt-1">The server must be able to reach this Foundry instance</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-bold">3</span>
+                <div>
+                  <p className="text-gray-200">Generate a token and run the install command</p>
+                  <p className="text-xs mt-1">Use "Generate New Token" to get the command with authentication</p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <span className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-700 text-white flex items-center justify-center text-xs font-bold">4</span>
+                <div>
+                  <p className="text-gray-200">Wait for connection</p>
+                  <p className="text-xs mt-1">The agent will connect and the server status will show "online"</p>
+                </div>
+              </li>
+            </ol>
+          </div>
+
+          <div className="pt-4 border-t border-gray-700">
+            <h4 className="text-sm font-medium mb-2">Requirements</h4>
+            <ul className="text-xs text-gray-400 space-y-1">
+              <li>• Ubuntu 22.04+ or Debian 12+</li>
+              <li>• Root or sudo access</li>
+              <li>• Network connectivity to this Foundry server</li>
+              <li>• curl installed</li>
+              <li>• At least 1GB RAM, 10GB disk space</li>
+            </ul>
+          </div>
+
+          <div className="pt-4 border-t border-gray-700">
+            <h4 className="text-sm font-medium mb-2">What the installer does</h4>
+            <ul className="text-xs text-gray-400 space-y-1">
+              <li>• Installs Node.js 20 LTS</li>
+              <li>• Creates nodefoundry system user</li>
+              <li>• Downloads and configures the agent</li>
+              <li>• Sets up systemd service for automatic startup</li>
+            </ul>
+          </div>
+
+          <button
+            onClick={() => {
+              setGuideModalOpen(false);
+              setSetupServerName('');
+            }}
+            className="w-full px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+          >
+            Close
+          </button>
+        </div>
       </Modal>
     </div>
   );
