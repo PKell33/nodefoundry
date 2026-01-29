@@ -1,10 +1,11 @@
-import { Package, ExternalLink, Play, Square, RotateCw, Trash2 } from 'lucide-react';
+import { Package, ExternalLink, Play, Square, RotateCw, Trash2, Users } from 'lucide-react';
 import type { AppManifest, Deployment } from '../api/client';
 import StatusBadge from './StatusBadge';
 
 interface AppCardProps {
   app: AppManifest;
   deployment?: Deployment;
+  groupName?: string;
   onInstall?: () => void;
   onStart?: () => void;
   onStop?: () => void;
@@ -25,6 +26,7 @@ const categoryColors: Record<string, string> = {
 export default function AppCard({
   app,
   deployment,
+  groupName,
   onInstall,
   onStart,
   onStop,
@@ -50,7 +52,15 @@ export default function AppCard({
               <p className="text-sm text-gray-400">v{app.version}</p>
             </div>
           </div>
-          {deployment && <StatusBadge status={deployment.status} size="sm" />}
+          <div className="flex flex-col items-end gap-1">
+            {deployment && <StatusBadge status={deployment.status} size="sm" />}
+            {groupName && (
+              <span className="flex items-center gap-1 text-xs text-gray-500">
+                <Users size={10} />
+                {groupName}
+              </span>
+            )}
+          </div>
         </div>
 
         <p className="text-sm text-gray-400 mb-4 line-clamp-2">{app.description}</p>

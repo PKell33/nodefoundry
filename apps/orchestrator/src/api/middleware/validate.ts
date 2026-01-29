@@ -195,6 +195,7 @@ export const schemas = {
       appName: z.string()
         .min(1, 'App name is required')
         .regex(/^[a-z0-9-]+$/, 'App name must be lowercase alphanumeric with hyphens'),
+      groupId: z.string().optional(),
       config: z.record(z.unknown()).optional().default({}),
       version: z.string().optional(),
     }),

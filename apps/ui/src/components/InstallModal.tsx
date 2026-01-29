@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { CheckCircle, XCircle, AlertTriangle, Loader2 } from 'lucide-react';
+import { CheckCircle, XCircle, AlertTriangle, Loader2, Users } from 'lucide-react';
 import Modal from './Modal';
 import { useApp, useValidateInstall, useInstallApp } from '../hooks/useApi';
+import { useAuthStore } from '../stores/useAuthStore';
+import { api, Group } from '../api/client';
 import type { Server, ConfigField } from '../api/client';
 
 interface InstallModalProps {
@@ -12,8 +14,11 @@ interface InstallModalProps {
 
 export default function InstallModal({ appName, servers, onClose }: InstallModalProps) {
   const [selectedServer, setSelectedServer] = useState<string>(servers[0]?.id || '');
+  const [selectedGroup, setSelectedGroup] = useState<string>('default');
+  const [groups, setGroups] = useState<Group[]>([]);
   const [config, setConfig] = useState<Record<string, unknown>>({});
   const [step, setStep] = useState<'select' | 'configure' | 'installing'>('select');
+  const { user } = useAuthStore();
 
   const { data: app } = useApp(appName);
   const { data: validation, isLoading: validating } = useValidateInstall(selectedServer, appName);
@@ -34,6 +39,33 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
     }
   }, [app]);
 
+  // Fetch groups the user can manage (admin role or system admin)
+  useEffect(() => {
+    const fetchGroups = async () => {
+      try {
+        const allGroups = await api.getGroups();
+        if (user?.isSystemAdmin) {
+          // System admins can install to any group
+          setGroups(allGroups);
+        } else {
+          // Regular users can only install to groups where they are admin
+          const adminGroups = allGroups.filter(g => {
+            const membership = user?.groups?.find(ug => ug.groupId === g.id);
+            return membership?.role === 'admin';
+          });
+          setGroups(adminGroups);
+          // Set default to first group user can manage
+          if (adminGroups.length > 0 && !adminGroups.find(g => g.id === selectedGroup)) {
+            setSelectedGroup(adminGroups[0].id);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch groups:', err);
+      }
+    };
+    fetchGroups();
+  }, [user]);
+
   const handleInstall = async () => {
     if (!selectedServer || !appName) return;
 
@@ -43,6 +75,7 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
         serverId: selectedServer,
         appName,
         config,
+        groupId: selectedGroup,
       });
       onClose();
     } catch (err) {
@@ -99,6 +132,33 @@ export default function InstallModal({ appName, servers, onClose }: InstallModal
               </div>
             )}
           </div>
+
+          {/* Group Selection */}
+          {groups.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-2">
+                <span className="flex items-center gap-2">
+                  <Users size={16} />
+                  Assign to Group
+                </span>
+              </label>
+              <p className="text-sm text-gray-400 mb-3">
+                Select which group this app belongs to. Only members of this group will be able to manage it.
+              </p>
+              <select
+                value={selectedGroup}
+                onChange={(e) => setSelectedGroup(e.target.value)}
+                className="w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded focus:outline-none focus:border-bitcoin"
+              >
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                    {group.id === 'default' ? ' (Default)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* Dependency Check */}
           {selectedServer && (

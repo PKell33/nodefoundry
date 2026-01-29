@@ -170,7 +170,8 @@ function TwoFactorAuth() {
     <section>
       <div className="flex items-center gap-2 mb-4">
         <Shield size={20} className="dark:text-gray-400 light:text-gray-500" />
-        <h2 className="text-lg font-semibold">Two-Factor Authentication</h2>
+        <h2 className="text-lg font-semibold">Your Two-Factor Authentication</h2>
+        <span className="text-xs text-gray-500">(personal setting)</span>
       </div>
 
       <div className="card p-4">
@@ -316,7 +317,7 @@ function TwoFactorAuth() {
                   <ShieldCheck size={20} className="text-green-400" />
                 </div>
                 <div>
-                  <div className="font-medium">Two-factor authentication is enabled</div>
+                  <div className="font-medium">Your 2FA is enabled</div>
                   <div className="text-sm dark:text-gray-400 light:text-gray-500">
                     {status.backupCodesRemaining} backup codes remaining
                   </div>
@@ -382,7 +383,7 @@ function TwoFactorAuth() {
                 <Lock size={20} className="dark:text-gray-400 light:text-gray-500" />
               </div>
               <div>
-                <div className="font-medium">Two-factor authentication is not enabled</div>
+                <div className="font-medium">Your 2FA is not enabled</div>
                 <div className="text-sm dark:text-gray-400 light:text-gray-500">
                   Add an extra layer of security to your account
                 </div>

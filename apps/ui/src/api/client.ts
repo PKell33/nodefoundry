@@ -204,10 +204,10 @@ export const api = {
     });
   },
 
-  async installApp(serverId: string, appName: string, config?: Record<string, unknown>) {
+  async installApp(serverId: string, appName: string, config?: Record<string, unknown>, groupId?: string) {
     return fetchWithAuth<Deployment>(`${API_BASE}/deployments`, {
       method: 'POST',
-      body: JSON.stringify({ serverId, appName, config }),
+      body: JSON.stringify({ serverId, appName, config, groupId }),
     });
   },
 
@@ -494,6 +494,7 @@ export interface Deployment {
   id: string;
   serverId: string;
   appName: string;
+  groupId?: string;
   version: string;
   config: Record<string, unknown>;
   status: string;

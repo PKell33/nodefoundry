@@ -8,7 +8,7 @@ import { useThemeStore } from '../stores/useThemeStore';
 export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { setTokens, setUser, setError, setLoading, error, isLoading, clearError } = useAuthStore();
+  const { setTokens, setUser, setError, setLoading, error, isLoading, clearError, setTotpSetupRequired } = useAuthStore();
   const { theme, toggleTheme } = useThemeStore();
 
   const [username, setUsername] = useState('');
@@ -37,7 +37,13 @@ export function Login() {
         const response = await api.loginWithTotp(username, password, totpCode);
         setTokens(response.accessToken, response.refreshToken);
         setUser(response.user);
-        navigate(from, { replace: true });
+        // Check if this user needs to setup TOTP (shouldn't happen after TOTP login, but handle it)
+        if ('totpSetupRequired' in response && response.totpSetupRequired) {
+          setTotpSetupRequired(true);
+          navigate('/setup-2fa', { replace: true });
+        } else {
+          navigate(from, { replace: true });
+        }
       } else if (isSetup) {
         // Setup mode
         await api.setup(username, password);
@@ -48,7 +54,13 @@ export function Login() {
         } else {
           setTokens(response.accessToken, response.refreshToken);
           setUser(response.user);
-          navigate(from, { replace: true });
+          // Check if 2FA setup is required
+          if ('totpSetupRequired' in response && response.totpSetupRequired) {
+            setTotpSetupRequired(true);
+            navigate('/setup-2fa', { replace: true });
+          } else {
+            navigate(from, { replace: true });
+          }
         }
       } else {
         // Normal login
@@ -58,7 +70,13 @@ export function Login() {
         } else {
           setTokens(response.accessToken, response.refreshToken);
           setUser(response.user);
-          navigate(from, { replace: true });
+          // Check if 2FA setup is required
+          if ('totpSetupRequired' in response && response.totpSetupRequired) {
+            setTotpSetupRequired(true);
+            navigate('/setup-2fa', { replace: true });
+          } else {
+            navigate(from, { replace: true });
+          }
         }
       }
     } catch (err) {

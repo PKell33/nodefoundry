@@ -11,41 +11,84 @@ import type { AppManifest } from '@nodefoundry/shared';
 
 const router = Router();
 
-// Helper: Check if user can manage (deploy, delete, configure)
-function canManage(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+// Helper: Check if user can manage a deployment (deploy, delete, configure)
+// For new deployments (POST), checks if user can manage the specified groupId
+// For existing deployments, checks if user is admin for the deployment's group
+async function canManageDeployment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
     return;
   }
+
   // System admins can do everything
   if (req.user.isSystemAdmin) {
     next();
     return;
   }
-  // TODO: Check group-based admin permission for the deployment's group
-  // For now, only system admins can manage
-  res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin permission required' } });
+
+  // For POST requests (new deployments), check the groupId from body
+  if (req.method === 'POST' && !req.params.id) {
+    const groupId = req.body.groupId || 'default';
+    const role = authService.getUserRoleInGroup(req.user.userId, groupId);
+    if (role === 'admin') {
+      next();
+      return;
+    }
+    res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin permission required for this group' } });
+    return;
+  }
+
+  // For existing deployments, check the deployment's group
+  const deploymentId = req.params.id;
+  if (deploymentId) {
+    const deployment = await deployer.getDeployment(deploymentId);
+    if (!deployment) {
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Deployment not found' } });
+      return;
+    }
+
+    const groupId = deployment.groupId || 'default';
+    const role = authService.getUserRoleInGroup(req.user.userId, groupId);
+    if (role === 'admin') {
+      next();
+      return;
+    }
+  }
+
+  res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Admin permission required for this group' } });
 }
 
-// Helper: Check if user can operate (start, stop, restart)
-function canOperate(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+// Helper: Check if user can operate a deployment (start, stop, restart)
+async function canOperateDeployment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
     res.status(401).json({ error: { code: 'UNAUTHORIZED', message: 'Authentication required' } });
     return;
   }
+
   // System admins can do everything
   if (req.user.isSystemAdmin) {
     next();
     return;
   }
-  // Check if user has operator or admin role in any group
-  const highestRole = authService.getUserHighestRole(req.user.userId);
-  if (highestRole === 'admin' || highestRole === 'operator') {
+
+  // Get the deployment's group
+  const deploymentId = req.params.id;
+  const deployment = await deployer.getDeployment(deploymentId);
+  if (!deployment) {
+    res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Deployment not found' } });
+    return;
+  }
+
+  const groupId = deployment.groupId || 'default';
+  const role = authService.getUserRoleInGroup(req.user.userId, groupId);
+
+  // Admin or operator in the deployment's group can operate
+  if (role === 'admin' || role === 'operator') {
     next();
     return;
   }
-  // TODO: Check group-based operator permission for the deployment's group
-  res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Operator permission required' } });
+
+  res.status(403).json({ error: { code: 'FORBIDDEN', message: 'Operator permission required for this group' } });
 }
 
 interface AppRegistryRow {
@@ -53,23 +96,36 @@ interface AppRegistryRow {
   manifest: string;
 }
 
-// GET /api/deployments - List all deployments
-router.get('/', requireAuth, async (req, res, next) => {
+// GET /api/deployments - List all deployments (filtered by user's groups)
+router.get('/', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
     const serverId = req.query.serverId as string | undefined;
-    const deployments = await deployer.listDeployments(serverId);
-    // TODO: Filter deployments based on user's group memberships
+    let deployments = await deployer.listDeployments(serverId);
+
+    // System admins see everything
+    if (!req.user?.isSystemAdmin) {
+      // Get user's groups
+      const userGroups = authService.getUserGroups(req.user!.userId);
+      const userGroupIds = new Set(userGroups.map(g => g.groupId));
+
+      // Filter deployments to only those in user's groups
+      deployments = deployments.filter(d => {
+        const groupId = d.groupId || 'default';
+        return userGroupIds.has(groupId);
+      });
+    }
+
     res.json(deployments);
   } catch (err) {
     next(err);
   }
 });
 
-// POST /api/deployments - Install an app (admin only)
-router.post('/', requireAuth, canManage, validateBody(schemas.deployments.create), async (req, res, next) => {
+// POST /api/deployments - Install an app (admin for the group)
+router.post('/', requireAuth, validateBody(schemas.deployments.create), canManageDeployment, async (req, res, next) => {
   try {
-    const { serverId, appName, config, version } = req.body;
-    const deployment = await deployer.install(serverId, appName, config || {}, version);
+    const { serverId, appName, config, version, groupId } = req.body;
+    const deployment = await deployer.install(serverId, appName, config || {}, version, groupId);
     res.status(201).json(deployment);
   } catch (err) {
     next(err);
@@ -115,13 +171,22 @@ router.post('/validate', requireAuth, validateBody(schemas.deployments.validate)
   }
 });
 
-// GET /api/deployments/:id - Get deployment details
-router.get('/:id', requireAuth, async (req, res, next) => {
+// GET /api/deployments/:id - Get deployment details (only if user has access to the group)
+router.get('/:id', requireAuth, async (req: AuthenticatedRequest, res, next) => {
   try {
     const deployment = await deployer.getDeployment(req.params.id);
 
     if (!deployment) {
       throw createError('Deployment not found', 404, 'DEPLOYMENT_NOT_FOUND');
+    }
+
+    // Check if user has access to this deployment's group
+    if (!req.user?.isSystemAdmin) {
+      const groupId = deployment.groupId || 'default';
+      const role = authService.getUserRoleInGroup(req.user!.userId, groupId);
+      if (!role) {
+        throw createError('Deployment not found', 404, 'DEPLOYMENT_NOT_FOUND');
+      }
     }
 
     // Get services provided by this deployment
@@ -136,8 +201,8 @@ router.get('/:id', requireAuth, async (req, res, next) => {
   }
 });
 
-// PUT /api/deployments/:id - Update deployment config (admin only)
-router.put('/:id', requireAuth, canManage, async (req, res, next) => {
+// PUT /api/deployments/:id - Update deployment config (admin for the group)
+router.put('/:id', requireAuth, canManageDeployment, async (req, res, next) => {
   try {
     const { config } = req.body;
 
@@ -152,8 +217,8 @@ router.put('/:id', requireAuth, canManage, async (req, res, next) => {
   }
 });
 
-// POST /api/deployments/:id/start - Start the app (admin + operator)
-router.post('/:id/start', requireAuth, canOperate, async (req, res, next) => {
+// POST /api/deployments/:id/start - Start the app (admin or operator for the group)
+router.post('/:id/start', requireAuth, canOperateDeployment, async (req, res, next) => {
   try {
     const deployment = await deployer.start(req.params.id);
     res.json(deployment);
@@ -162,8 +227,8 @@ router.post('/:id/start', requireAuth, canOperate, async (req, res, next) => {
   }
 });
 
-// POST /api/deployments/:id/stop - Stop the app (admin + operator)
-router.post('/:id/stop', requireAuth, canOperate, async (req, res, next) => {
+// POST /api/deployments/:id/stop - Stop the app (admin or operator for the group)
+router.post('/:id/stop', requireAuth, canOperateDeployment, async (req, res, next) => {
   try {
     const deployment = await deployer.stop(req.params.id);
     res.json(deployment);
@@ -172,8 +237,8 @@ router.post('/:id/stop', requireAuth, canOperate, async (req, res, next) => {
   }
 });
 
-// POST /api/deployments/:id/restart - Restart the app (admin + operator)
-router.post('/:id/restart', requireAuth, canOperate, async (req, res, next) => {
+// POST /api/deployments/:id/restart - Restart the app (admin or operator for the group)
+router.post('/:id/restart', requireAuth, canOperateDeployment, async (req, res, next) => {
   try {
     const deployment = await deployer.restart(req.params.id);
     res.json(deployment);
@@ -182,8 +247,8 @@ router.post('/:id/restart', requireAuth, canOperate, async (req, res, next) => {
   }
 });
 
-// DELETE /api/deployments/:id - Uninstall the app (admin only)
-router.delete('/:id', requireAuth, canManage, async (req, res, next) => {
+// DELETE /api/deployments/:id - Uninstall the app (admin for the group)
+router.delete('/:id', requireAuth, canManageDeployment, async (req, res, next) => {
   try {
     await deployer.uninstall(req.params.id);
     res.status(204).send();

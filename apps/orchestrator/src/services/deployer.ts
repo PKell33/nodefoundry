@@ -12,6 +12,7 @@ interface DeploymentRow {
   id: string;
   server_id: string;
   app_name: string;
+  group_id: string | null;
   version: string;
   config: string;
   status: string;
@@ -37,7 +38,8 @@ export class Deployer {
     serverId: string,
     appName: string,
     userConfig: Record<string, unknown> = {},
-    version?: string
+    version?: string,
+    groupId?: string
   ): Promise<Deployment> {
     const db = getDb();
 
@@ -91,10 +93,13 @@ export class Deployer {
     const deploymentId = uuidv4();
     const appVersion = version || manifest.version;
 
+    // Use default group if none specified
+    const finalGroupId = groupId || 'default';
+
     db.prepare(`
-      INSERT INTO deployments (id, server_id, app_name, version, config, status, installed_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(deploymentId, serverId, appName, appVersion, JSON.stringify(resolvedConfig));
+      INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
 
     // Store secrets
     if (Object.keys(secrets).length > 0) {
@@ -377,6 +382,7 @@ export class Deployer {
       id: row.id,
       serverId: row.server_id,
       appName: row.app_name,
+      groupId: row.group_id || undefined,
       version: row.version,
       config: JSON.parse(row.config),
       status: row.status as DeploymentStatus,
