@@ -1,6 +1,6 @@
 [Unit]
 Description=Ownprem Agent
-Documentation=https://github.com/ownprem/ownprem
+Documentation=https://github.com/PKell33/ownprem
 After=network.target
 Wants=network-online.target
 

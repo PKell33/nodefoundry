@@ -5,7 +5,7 @@ set -e
 # Usage: sudo ./install-caddy.sh <domain> [email]
 
 DOMAIN="${1:-}"
-EMAIL="${2:-admin@$DOMAIN}"
+EMAIL="${2:-}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -69,18 +69,54 @@ fi
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Determine if this is a local domain (needs self-signed certs)
+IS_LOCAL=false
+if [[ "$DOMAIN" =~ \.(local|localhost|lan|internal|home|test)$ ]] || [[ "$DOMAIN" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    IS_LOCAL=true
+    log_info "Local domain detected - using Caddy's internal CA (self-signed)"
+else
+    if [[ -z "$EMAIL" ]]; then
+        EMAIL="admin@$DOMAIN"
+    fi
+    log_info "Public domain detected - using Let's Encrypt (email: $EMAIL)"
+fi
+
 # Generate Caddyfile from template
 log_info "Generating Caddyfile..."
-cat > /etc/caddy/Caddyfile << EOF
+
+if [[ "$IS_LOCAL" == "true" ]]; then
+    # Local domain - use internal TLS
+    cat > /etc/caddy/Caddyfile << EOF
 # Ownprem Caddyfile
 # Generated on $(date)
-# Domain: $DOMAIN
+# Domain: $DOMAIN (local - self-signed certificate)
+
+{
+    # Use Caddy's internal CA for local domains
+    local_certs
+    skip_install_trust
+}
+
+$DOMAIN {
+    tls internal
+EOF
+else
+    # Public domain - use Let's Encrypt
+    cat > /etc/caddy/Caddyfile << EOF
+# Ownprem Caddyfile
+# Generated on $(date)
+# Domain: $DOMAIN (public - Let's Encrypt)
 
 {
     email $EMAIL
 }
 
 $DOMAIN {
+EOF
+fi
+
+# Append common configuration
+cat >> /etc/caddy/Caddyfile << EOF
     # Security headers
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -187,20 +223,52 @@ else
     exit 1
 fi
 
+# For local domains, copy the root CA to a readable location
+if [[ "$IS_LOCAL" == "true" ]]; then
+    log_info "Waiting for Caddy to generate certificates..."
+    sleep 3
+
+    # Make request to trigger certificate generation
+    curl -sk "https://$DOMAIN/health" >/dev/null 2>&1 || true
+    sleep 2
+
+    CA_CERT_PATH="/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt"
+    PUBLIC_CA_PATH="/etc/caddy/root-ca.crt"
+
+    if [[ -f "$CA_CERT_PATH" ]]; then
+        log_info "Copying root CA certificate to $PUBLIC_CA_PATH"
+        cp "$CA_CERT_PATH" "$PUBLIC_CA_PATH"
+        chmod 644 "$PUBLIC_CA_PATH"
+        log_info "Root CA certificate is now available for download"
+    else
+        log_warn "Root CA not found at $CA_CERT_PATH"
+        log_warn "You may need to manually copy it after first HTTPS request"
+    fi
+fi
+
 log_info "Caddy installation complete!"
 echo ""
 echo "Configuration:"
 echo "  Domain: $DOMAIN"
-echo "  Email: $EMAIL"
 echo "  Caddyfile: /etc/caddy/Caddyfile"
 echo "  Logs: /var/log/caddy/"
 echo ""
-echo "Caddy will automatically obtain SSL certificates from Let's Encrypt."
-echo ""
-echo "Ensure the following:"
-echo "  1. DNS A record for $DOMAIN points to this server"
-echo "  2. Ports 80 and 443 are open in firewall"
-echo "  3. Ownprem services are running on port 3001"
+
+if [[ "$IS_LOCAL" == "true" ]]; then
+    echo "Certificate: Self-signed (Caddy internal CA)"
+    echo ""
+    echo "Setup:"
+    echo "  1. Add to client hosts file: <server-ip> $DOMAIN"
+    echo "  2. Accept the self-signed certificate warning in browser"
+    echo "  3. Ports 80 and 443 must be open in firewall"
+else
+    echo "Certificate: Let's Encrypt (email: $EMAIL)"
+    echo ""
+    echo "Setup:"
+    echo "  1. DNS A record for $DOMAIN must point to this server"
+    echo "  2. Ports 80 and 443 must be open in firewall"
+fi
+
 echo ""
 echo "Commands:"
 echo "  sudo systemctl status caddy"

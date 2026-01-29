@@ -44,14 +44,14 @@ router.get('/caddy', async (_req, res, next) => {
   }
 });
 
-// POST /api/proxy-routes/reload - Trigger Caddy reload (requires auth)
+// POST /api/proxy-routes/reload - Trigger Caddy config update via Admin API
 router.post('/reload', async (_req, res, next) => {
   try {
-    const success = await proxyManager.reloadCaddy();
+    const success = await proxyManager.updateAndReload();
     if (success) {
-      res.json({ status: 'ok', message: 'Caddy reloaded successfully' });
+      res.json({ status: 'ok', message: 'Caddy config updated successfully' });
     } else {
-      res.status(500).json({ error: { code: 'CADDY_RELOAD_FAILED', message: 'Failed to reload Caddy' } });
+      res.status(500).json({ error: { code: 'CADDY_UPDATE_FAILED', message: 'Failed to update Caddy config' } });
     }
   } catch (err) {
     next(err);

@@ -214,8 +214,8 @@ export class Deployer {
       await proxyManager.registerRoute(deploymentId, manifest, serverHost);
     }
 
-    // Update Caddy config
-    await proxyManager.updateCaddyConfig();
+    // Update Caddy config and reload
+    await proxyManager.updateAndReload();
 
     return (await this.getDeployment(deploymentId))!;
   }
@@ -384,8 +384,8 @@ export class Deployer {
     // Delete deployment record
     db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
 
-    // Update Caddy config
-    await proxyManager.updateCaddyConfig();
+    // Update Caddy config and reload
+    await proxyManager.updateAndReload();
   }
 
   async getDeployment(deploymentId: string): Promise<Deployment | null> {

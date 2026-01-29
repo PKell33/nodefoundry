@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { Lock, User, AlertCircle, Loader2, Sun, Moon, Shield } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuthStore } from '../stores/useAuthStore';
@@ -277,6 +277,15 @@ export function Login() {
 
         <p className="mt-6 text-center text-sm text-gray-400 dark:text-gray-500">
           Sovereign Bitcoin Infrastructure
+        </p>
+
+        <p className="mt-2 text-center">
+          <Link
+            to="/certificate"
+            className="text-sm text-blue-500 hover:text-blue-400 hover:underline"
+          >
+            Certificate setup
+          </Link>
         </p>
       </div>
     </div>

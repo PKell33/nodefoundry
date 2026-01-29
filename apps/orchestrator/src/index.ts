@@ -4,6 +4,7 @@ import { initDb, closeDb } from './db/index.js';
 import { createApi, initializeApi } from './api/index.js';
 import { createWebSocket } from './websocket/index.js';
 import { secretsManager } from './services/secretsManager.js';
+import { proxyManager } from './services/proxyManager.js';
 import logger from './lib/logger.js';
 
 async function main(): Promise<void> {
@@ -28,12 +29,24 @@ async function main(): Promise<void> {
   createWebSocket(httpServer);
 
   // Start listening on all interfaces for remote access
-  httpServer.listen(config.port, '0.0.0.0', () => {
+  httpServer.listen(config.port, '0.0.0.0', async () => {
     logger.info({
       port: config.port,
       api: `http://localhost:${config.port}/api`,
       ws: `ws://localhost:${config.port}`,
     }, 'Orchestrator started');
+
+    // Sync Caddy config on startup (ensures Caddy has correct routes after restart)
+    try {
+      const success = await proxyManager.updateAndReload();
+      if (success) {
+        logger.info('Caddy config synced via Admin API');
+      } else {
+        logger.warn('Failed to sync Caddy config - Caddy may not be running');
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Failed to sync Caddy config on startup');
+    }
   });
 
   // Graceful shutdown

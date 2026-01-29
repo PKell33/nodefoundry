@@ -1,6 +1,3 @@
-import { writeFileSync, existsSync, mkdirSync } from 'fs';
-import { execSync } from 'child_process';
-import { dirname } from 'path';
 import { getDb } from '../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AppManifest, ServiceDefinition } from '@ownprem/shared';
@@ -63,20 +60,18 @@ const TCP_PORT_RANGE_START = 50000;
 const TCP_PORT_RANGE_END = 50100;
 
 export class ProxyManager {
-  private caddyfilePath: string;
   private apiPort: number;
   private domain: string;
-  private reloadCommand: string;
+  private caddyAdminUrl: string;
 
   constructor(
-    caddyfilePath: string = config.paths.caddyConfig,
     apiPort: number = config.port,
-    domain: string = config.caddy.domain
+    domain: string = config.caddy.domain,
+    caddyAdminUrl: string = config.caddy.adminUrl
   ) {
-    this.caddyfilePath = caddyfilePath;
     this.apiPort = apiPort;
     this.domain = domain;
-    this.reloadCommand = config.caddy.reloadCommand;
+    this.caddyAdminUrl = caddyAdminUrl;
   }
 
   // ==================== Web UI Routes ====================
@@ -304,59 +299,161 @@ export class ProxyManager {
     throw new Error('No available TCP ports for service proxying');
   }
 
-  // ==================== Caddy Config Generation ====================
+  // ==================== Caddy Admin API ====================
 
-  async updateCaddyConfig(): Promise<void> {
+  async updateAndReload(): Promise<boolean> {
     const routes = await this.getActiveRoutes();
     const serviceRoutes = await this.getActiveServiceRoutes();
-    const config = this.generateCaddyConfig(routes, serviceRoutes);
-
-    // Ensure directory exists
-    const dir = dirname(this.caddyfilePath);
-    if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
-    }
-
-    writeFileSync(this.caddyfilePath, config);
-    console.log(`Wrote Caddy config to ${this.caddyfilePath}`);
-  }
-
-  async reloadCaddy(): Promise<boolean> {
-    if (!this.reloadCommand) {
-      console.log('Caddy config updated (reload skipped in development)');
-      return true;
-    }
+    const caddyConfig = this.generateCaddyJsonConfig(routes, serviceRoutes);
 
     try {
-      execSync(this.reloadCommand, { stdio: 'inherit' });
-      console.log('Caddy reloaded successfully');
+      const response = await fetch(`${this.caddyAdminUrl}/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(caddyConfig),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Caddy API error:', errorText);
+        return false;
+      }
+
+      console.log('Caddy config updated via Admin API');
       return true;
     } catch (err) {
-      console.error('Failed to reload Caddy:', err);
+      console.error('Failed to update Caddy config:', err);
       return false;
     }
   }
 
-  async updateAndReload(): Promise<boolean> {
-    await this.updateCaddyConfig();
-    return this.reloadCaddy();
+  private generateCaddyJsonConfig(routes: ProxyRoute[], serviceRoutes: ServiceRoute[]): object {
+    const httpRoutes = serviceRoutes.filter(r => r.routeType === 'http');
+    const devUiPort = config.caddy.devUiPort;
+
+    // Build subroute handlers (routes within the host matcher)
+    const subroutes: object[] = [];
+
+    // API routes
+    subroutes.push({
+      match: [{ path: ['/api/*'] }],
+      handle: [{
+        handler: 'reverse_proxy',
+        upstreams: [{ dial: `localhost:${this.apiPort}` }],
+      }],
+    });
+
+    // WebSocket routes
+    subroutes.push({
+      match: [{ path: ['/socket.io/*'] }],
+      handle: [{
+        handler: 'reverse_proxy',
+        upstreams: [{ dial: `localhost:${this.apiPort}` }],
+      }],
+    });
+
+    // Health endpoints
+    subroutes.push({
+      match: [{ path: ['/health', '/ready'] }],
+      handle: [{
+        handler: 'reverse_proxy',
+        upstreams: [{ dial: `localhost:${this.apiPort}` }],
+      }],
+    });
+
+    // App Web UI routes (with path stripping)
+    for (const route of routes) {
+      subroutes.push({
+        match: [{ path: [`${route.path}*`] }],
+        handle: [
+          {
+            handler: 'rewrite',
+            strip_path_prefix: route.path,
+          },
+          {
+            handler: 'reverse_proxy',
+            upstreams: [{ dial: route.upstream.replace('http://', '') }],
+          },
+        ],
+      });
+    }
+
+    // HTTP service routes (with path stripping)
+    for (const route of httpRoutes) {
+      subroutes.push({
+        match: [{ path: [`${route.externalPath}*`] }],
+        handle: [
+          {
+            handler: 'rewrite',
+            strip_path_prefix: route.externalPath,
+          },
+          {
+            handler: 'reverse_proxy',
+            upstreams: [{ dial: `${route.upstreamHost}:${route.upstreamPort}` }],
+          },
+        ],
+      });
+    }
+
+    // Fallback to Vite dev server (development) or static files (production)
+    if (config.isDevelopment) {
+      subroutes.push({
+        handle: [{
+          handler: 'reverse_proxy',
+          upstreams: [{ dial: `localhost:${devUiPort}` }],
+        }],
+      });
+    }
+
+    // Wrap subroutes in a host-matched route
+    return {
+      apps: {
+        http: {
+          servers: {
+            srv0: {
+              listen: [':443'],
+              routes: [{
+                match: [{ host: [this.domain] }],
+                handle: [{
+                  handler: 'subroute',
+                  routes: subroutes,
+                }],
+                terminal: true,
+              }],
+              tls_connection_policies: [{}],
+            },
+          },
+        },
+        tls: {
+          automation: {
+            policies: [{
+              subjects: [this.domain],
+              issuers: [{ module: 'internal' }],
+            }],
+          },
+        },
+        pki: {
+          certificate_authorities: {
+            local: { install_trust: true },
+          },
+        },
+      },
+    };
   }
 
   private generateCaddyConfig(routes: ProxyRoute[], serviceRoutes: ServiceRoute[]): string {
-    // Web UI route blocks
+    // Web UI route blocks - use handle_path for automatic prefix stripping
     const webUiBlocks = routes.map(route => `
   # ${route.appName} Web UI on ${route.serverName}
-  handle ${route.path}/* {
-    uri strip_prefix ${route.path}
+  handle_path ${route.path}* {
     reverse_proxy ${route.upstream}
   }`).join('\n');
 
-    // HTTP service route blocks
+    // HTTP service route blocks - use handle_path for automatic prefix stripping
     const httpServiceRoutes = serviceRoutes.filter(r => r.routeType === 'http');
     const httpServiceBlocks = httpServiceRoutes.map(route => `
   # ${route.serviceName} (${route.appName}) on ${route.serverName}
-  handle ${route.externalPath}/* {
-    uri strip_prefix ${route.externalPath}
+  handle_path ${route.externalPath}* {
     reverse_proxy http://${route.upstreamHost}:${route.upstreamPort}
   }`).join('\n');
 
@@ -426,7 +523,7 @@ ${tcpBlocks}
     return httpConfig + layer4Config;
   }
 
-  generateDevConfig(serviceRoutes: ServiceRoute[] = []): string {
+  generateDevConfig(webUiRoutes: ProxyRoute[] = [], serviceRoutes: ServiceRoute[] = []): string {
     const httpRoutes = serviceRoutes.filter(r => r.routeType === 'http');
     const tcpRoutes = serviceRoutes.filter(r => r.routeType === 'tcp');
     const devUiPort = config.caddy.devUiPort;
@@ -461,12 +558,21 @@ ${this.domain} {
   }
 `;
 
-    // Add HTTP service routes
+    // Add app Web UI routes - use handle_path for automatic prefix stripping
+    for (const route of webUiRoutes) {
+      caddyConfig += `
+  # ${route.appName} Web UI on ${route.serverName}
+  handle_path ${route.path}* {
+    reverse_proxy ${route.upstream}
+  }
+`;
+    }
+
+    // Add HTTP service routes - use handle_path for automatic prefix stripping
     for (const route of httpRoutes) {
       caddyConfig += `
   # ${route.serviceName} (${route.appName})
-  handle ${route.externalPath}/* {
-    uri strip_prefix ${route.externalPath}
+  handle_path ${route.externalPath}* {
     reverse_proxy http://${route.upstreamHost}:${route.upstreamPort}
   }
 `;
