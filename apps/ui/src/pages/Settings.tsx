@@ -626,15 +626,19 @@ function GroupManagement() {
                   <Shield size={16} className="text-gray-400" />
                   <span className="text-sm">Require 2FA for members</span>
                 </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={selectedGroup.totp_required}
-                    onChange={(e) => handleUpdateGroup(selectedGroup.id, e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                </label>
+                {selectedGroup.id === 'default' ? (
+                  <span className="text-xs text-gray-500">Not available for default group</span>
+                ) : (
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroup.totp_required}
+                      onChange={(e) => handleUpdateGroup(selectedGroup.id, e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                )}
               </div>
 
               {/* Members */}

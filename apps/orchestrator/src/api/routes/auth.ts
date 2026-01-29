@@ -616,9 +616,8 @@ router.post('/setup', validateBody(schemas.auth.setup), async (req, res) => {
     const { username, password } = req.body;
 
     // Create first user as system admin
+    // System admins don't need group membership - they have full access
     const userId = await authService.createUser(username, password, true);
-    // Add to default group as admin
-    authService.addUserToGroup(userId, 'default', 'admin');
 
     logAudit(userId, 'user_created', 'user', userId, req.ip, { setup: true, isSystemAdmin: true });
 

@@ -110,8 +110,11 @@ class AuthService {
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).run(id, username, passwordHash, isSystemAdmin ? 1 : 0);
 
-    // Add user to default group as viewer
-    this.addUserToGroup(id, 'default', 'viewer');
+    // Add non-system-admin users to default group as viewer
+    // System admins have full access and don't need group membership
+    if (!isSystemAdmin) {
+      this.addUserToGroup(id, 'default', 'viewer');
+    }
 
     return id;
   }
@@ -358,6 +361,11 @@ class AuthService {
     const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(groupId);
     if (!group) {
       return false;
+    }
+
+    // Prevent enabling 2FA on default group
+    if (groupId === 'default' && updates.totpRequired) {
+      throw new Error('Cannot require 2FA for the default group');
     }
 
     if (updates.name) {
@@ -761,9 +769,8 @@ class AuthService {
       // Create default admin user in development
       if (config.isDevelopment) {
         const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin';
-        const userId = await this.createUser('admin', defaultPassword, true); // isSystemAdmin = true
-        // Also add to default group as admin
-        this.addUserToGroup(userId, 'default', 'admin');
+        await this.createUser('admin', defaultPassword, true); // isSystemAdmin = true
+        // System admins don't need group membership - they have full access
         console.log('Created default admin user (username: admin)');
       } else {
         console.warn('No users exist. Create an admin user with: POST /api/auth/setup');
