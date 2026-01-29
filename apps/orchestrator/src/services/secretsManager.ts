@@ -139,6 +139,13 @@ export class SecretsManager {
   }
 
   async storeSecrets(deploymentId: string, secrets: Record<string, unknown>): Promise<void> {
+    this.storeSecretsSync(deploymentId, secrets);
+  }
+
+  /**
+   * Synchronous version for use in transactions
+   */
+  storeSecretsSync(deploymentId: string, secrets: Record<string, unknown>): void {
     const db = getDb();
     const encrypted = this.encrypt(secrets);
 
@@ -163,6 +170,13 @@ export class SecretsManager {
   }
 
   async deleteSecrets(deploymentId: string): Promise<void> {
+    this.deleteSecretsSync(deploymentId);
+  }
+
+  /**
+   * Synchronous version for use in transactions
+   */
+  deleteSecretsSync(deploymentId: string): void {
     const db = getDb();
     db.prepare('DELETE FROM secrets WHERE deployment_id = ?').run(deploymentId);
   }

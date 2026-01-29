@@ -39,6 +39,11 @@ export interface CommandResult {
   duration?: number;
 }
 
+export interface CommandAck {
+  commandId: string;
+  receivedAt: Date;
+}
+
 export interface AgentStatusReport {
   serverId: string;
   timestamp: Date;

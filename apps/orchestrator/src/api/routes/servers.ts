@@ -5,6 +5,7 @@ import { createError } from '../middleware/error.js';
 import { validateBody, schemas } from '../middleware/validate.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { hashToken } from '../../websocket/agentHandler.js';
+import { parsePaginationParams, paginateOrReturnAll } from '../../lib/pagination.js';
 import type { Server, ServerMetrics } from '@ownprem/shared';
 
 // Helper: Check if user can manage servers (system admin only for now)
@@ -51,11 +52,14 @@ function rowToServer(row: ServerRow): Server {
 }
 
 // GET /api/servers - List all servers
-router.get('/', requireAuth, (_req, res) => {
+router.get('/', requireAuth, (req, res) => {
   const db = getDb();
   const rows = db.prepare('SELECT * FROM servers ORDER BY is_core DESC, name').all() as ServerRow[];
   const servers = rows.map(rowToServer);
-  res.json(servers);
+
+  // Apply pagination if requested, otherwise return full array for backward compatibility
+  const paginationParams = parsePaginationParams(req);
+  res.json(paginateOrReturnAll(servers, paginationParams));
 });
 
 // POST /api/servers - Add a new server (system admin only)

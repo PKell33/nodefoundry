@@ -32,6 +32,12 @@ export function requireAuth(
   res: Response,
   next: NextFunction
 ): void {
+  // If user is already set (e.g., by devBypassAuth), proceed
+  if (req.user) {
+    next();
+    return;
+  }
+
   const token = extractToken(req);
 
   if (!token) {

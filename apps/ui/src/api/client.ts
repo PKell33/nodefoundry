@@ -5,6 +5,10 @@ const API_BASE = '/api';
 // Mutex to prevent concurrent token refresh attempts
 let refreshPromise: Promise<boolean> | null = null;
 
+// CSRF token cache
+let csrfToken: string | null = null;
+let csrfTokenPromise: Promise<string | null> | null = null;
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -25,6 +29,61 @@ function getAuthHeaders(): HeadersInit {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
   return headers;
+}
+
+/**
+ * Fetch a CSRF token from the server.
+ * Uses a promise mutex to prevent concurrent fetches.
+ */
+async function fetchCsrfToken(): Promise<string | null> {
+  // If a fetch is already in progress, wait for it
+  if (csrfTokenPromise) {
+    return csrfTokenPromise;
+  }
+
+  const { accessToken } = useAuthStore.getState();
+  if (!accessToken) {
+    return null;
+  }
+
+  csrfTokenPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/csrf-token`, {
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        console.warn('Failed to fetch CSRF token');
+        return null;
+      }
+      const data = await res.json();
+      csrfToken = data.csrfToken;
+      return csrfToken;
+    } catch {
+      console.warn('Error fetching CSRF token');
+      return null;
+    } finally {
+      csrfTokenPromise = null;
+    }
+  })();
+
+  return csrfTokenPromise;
+}
+
+/**
+ * Get the cached CSRF token, fetching a new one if needed.
+ */
+async function getCsrfToken(): Promise<string | null> {
+  if (csrfToken) {
+    return csrfToken;
+  }
+  return fetchCsrfToken();
+}
+
+/**
+ * Clear the cached CSRF token (call on logout or auth failure).
+ */
+export function clearCsrfToken(): void {
+  csrfToken = null;
 }
 
 async function handleResponse<T>(response: Response, retryFn?: () => Promise<Response>): Promise<T> {
@@ -98,12 +157,25 @@ async function tryRefreshToken(): Promise<boolean> {
 }
 
 async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise<T> {
+  // Get CSRF token for state-changing methods
+  const method = options.method?.toUpperCase() || 'GET';
+  const needsCsrf = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
+
+  const headers: HeadersInit = {
+    ...getAuthHeaders(),
+    ...options.headers,
+  };
+
+  if (needsCsrf) {
+    const token = await getCsrfToken();
+    if (token) {
+      (headers as Record<string, string>)['X-CSRF-Token'] = token;
+    }
+  }
+
   const doFetch = () => fetch(url, {
     ...options,
-    headers: {
-      ...getAuthHeaders(),
-      ...options.headers,
-    },
+    headers,
   });
 
   const response = await doFetch();
@@ -139,6 +211,7 @@ export const api = {
         body: JSON.stringify({ refreshToken }),
       }).catch(() => {}); // Ignore errors on logout
     }
+    clearCsrfToken();
     useAuthStore.getState().logout();
   },
 
@@ -671,4 +744,25 @@ export interface LogsResponse {
   hasMore: boolean;
   status: 'success' | 'error';
   message?: string;
+}
+
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    total: number;
+    limit: number;
+    offset: number;
+    hasMore: boolean;
+  };
+}
+
+/**
+ * Helper to normalize responses that may or may not be paginated.
+ * Returns the data array whether the response is paginated or not.
+ */
+export function extractData<T>(response: T[] | PaginatedResponse<T>): T[] {
+  if (Array.isArray(response)) {
+    return response;
+  }
+  return response.data;
 }

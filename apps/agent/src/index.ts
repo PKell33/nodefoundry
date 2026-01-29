@@ -58,6 +58,13 @@ class Agent {
 
   private async handleCommand(cmd: AgentCommand): Promise<void> {
     console.log(`[${cmd.id}] Received command: ${cmd.action} ${cmd.appName}`);
+
+    // Send acknowledgment immediately
+    this.connection.sendCommandAck({
+      commandId: cmd.id,
+      receivedAt: new Date(),
+    });
+
     const start = Date.now();
 
     try {

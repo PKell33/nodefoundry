@@ -61,6 +61,13 @@ export class ServiceRegistry {
   }
 
   async unregisterServices(deploymentId: string): Promise<void> {
+    this.unregisterServicesSync(deploymentId);
+  }
+
+  /**
+   * Synchronous version for use in transactions
+   */
+  unregisterServicesSync(deploymentId: string): void {
     const db = getDb();
     db.prepare('DELETE FROM services WHERE deployment_id = ?').run(deploymentId);
   }

@@ -39,3 +39,16 @@ export function closeDb(): void {
     db = null;
   }
 }
+
+/**
+ * Run a function within a database transaction.
+ * If the function throws, the transaction is rolled back.
+ * If the function succeeds, the transaction is committed.
+ *
+ * @param fn - The function to run within the transaction
+ * @returns The return value of the function
+ */
+export function runInTransaction<T>(fn: () => T): T {
+  const database = getDb();
+  return database.transaction(fn)();
+}

@@ -15,6 +15,7 @@ import agentRouter from './routes/agent.js';
 import certificateRouter from './routes/certificate.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { devBypassAuth, AuthenticatedRequest } from './middleware/auth.js';
+import { csrfProtection } from './middleware/csrf.js';
 import { config } from '../config.js';
 import { authService } from '../services/authService.js';
 import { createRequestLogger, apiLogger } from '../lib/logger.js';
@@ -72,7 +73,7 @@ export function createApi(): express.Application {
     origin: config.isDevelopment ? true : config.cors.origin || false,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-ID', 'X-CSRF-Token'],
   };
   app.use(cors(corsOptions));
 
@@ -145,13 +146,13 @@ export function createApi(): express.Application {
   // Certificate routes (unauthenticated - needed before users can trust the site)
   app.use('/api/certificate', certificateRouter);
 
-  // Protected API routes - use devBypassAuth for development convenience
-  app.use('/api/servers', devBypassAuth, serversRouter);
-  app.use('/api/apps', devBypassAuth, appsRouter);
-  app.use('/api/deployments', devBypassAuth, deploymentsRouter);
-  app.use('/api/services', devBypassAuth, servicesRouter);
-  app.use('/api/system', devBypassAuth, systemRouter);
-  app.use('/api/audit-logs', devBypassAuth, auditRouter);
+  // Protected API routes - use devBypassAuth for development convenience, csrfProtection for CSRF defense
+  app.use('/api/servers', devBypassAuth, csrfProtection, serversRouter);
+  app.use('/api/apps', devBypassAuth, appsRouter); // Read-only, no CSRF needed
+  app.use('/api/deployments', devBypassAuth, csrfProtection, deploymentsRouter);
+  app.use('/api/services', devBypassAuth, servicesRouter); // Read-only, no CSRF needed
+  app.use('/api/system', devBypassAuth, systemRouter); // Read-only, no CSRF needed
+  app.use('/api/audit-logs', devBypassAuth, auditRouter); // Read-only, no CSRF needed
 
   // Error handling
   app.use('/api/*', notFoundHandler);

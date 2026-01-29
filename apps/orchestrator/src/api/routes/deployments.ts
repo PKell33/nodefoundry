@@ -8,6 +8,7 @@ import { validateBody, schemas } from '../middleware/validate.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { authService } from '../../services/authService.js';
 import { requestLogs } from '../../websocket/agentHandler.js';
+import { parsePaginationParams, paginateOrReturnAll } from '../../lib/pagination.js';
 import type { AppManifest } from '@ownprem/shared';
 
 const router = Router();
@@ -116,7 +117,9 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res, next) => {
       });
     }
 
-    res.json(deployments);
+    // Apply pagination if requested, otherwise return full array for backward compatibility
+    const paginationParams = parsePaginationParams(req);
+    res.json(paginateOrReturnAll(deployments, paginationParams));
   } catch (err) {
     next(err);
   }

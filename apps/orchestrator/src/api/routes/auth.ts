@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { authService } from '../../services/authService.js';
-import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
+import { csrfService } from '../../services/csrfService.js';
+import { requireAuth, devBypassAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { validateBody, schemas } from '../middleware/validate.js';
 import { getDb } from '../../db/index.js';
 import { config } from '../../config.js';
@@ -205,6 +206,25 @@ router.post('/logout', async (req, res) => {
       },
     });
   }
+});
+
+/**
+ * GET /api/auth/csrf-token
+ * Get a CSRF token for the current user
+ * Uses devBypassAuth to allow development testing
+ */
+router.get('/csrf-token', devBypassAuth, (req: AuthenticatedRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Not authenticated',
+      },
+    });
+  }
+
+  const csrfToken = csrfService.generateToken(req.user.userId);
+  res.json({ csrfToken });
 });
 
 /**

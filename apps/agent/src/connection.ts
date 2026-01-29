@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import type { AgentCommand, AgentStatusReport, LogResult } from '@ownprem/shared';
+import type { AgentCommand, AgentStatusReport, LogResult, CommandAck } from '@ownprem/shared';
 
 const RECONNECTION_DELAY_MS = 5000;
 const RECONNECTION_DELAY_MAX_MS = 30000;
@@ -76,6 +76,14 @@ export class Connection {
       return;
     }
     this.socket.emit('status', report);
+  }
+
+  sendCommandAck(ack: CommandAck): void {
+    if (!this.socket?.connected) {
+      console.warn('Cannot send command ack: not connected');
+      return;
+    }
+    this.socket.emit('command:ack', ack);
   }
 
   sendCommandResult(result: { commandId: string; status: 'success' | 'error'; message?: string; duration?: number }): void {

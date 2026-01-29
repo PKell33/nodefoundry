@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db/index.js';
+import { getDb, runInTransaction } from '../db/index.js';
 import { secretsManager } from './secretsManager.js';
 import { configRenderer } from './configRenderer.js';
 import { serviceRegistry } from './serviceRegistry.js';
@@ -110,19 +110,22 @@ export class Deployer {
     // Use default group if none specified
     const finalGroupId = groupId || 'default';
 
-    db.prepare(`
-      INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
-
-    // Store secrets
-    if (Object.keys(secrets).length > 0) {
-      await secretsManager.storeSecrets(deploymentId, secrets);
-    }
-
-    // Get server info for config rendering
+    // Get server info for config rendering (needed before transaction)
     const server = db.prepare('SELECT host, is_core FROM servers WHERE id = ?').get(serverId) as ServerRow;
     const serverHost = server.is_core ? '127.0.0.1' : (server.host || '127.0.0.1');
+
+    // Atomic transaction: deployment + secrets
+    runInTransaction(() => {
+      db.prepare(`
+        INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
+
+      // Store secrets synchronously within transaction
+      if (Object.keys(secrets).length > 0) {
+        secretsManager.storeSecretsSync(deploymentId, secrets);
+      }
+    });
 
     // Render config files
     const configFiles = await configRenderer.renderAppConfigs(manifest, resolvedConfig, secrets);
@@ -356,7 +359,7 @@ export class Deployer {
 
     const db = getDb();
 
-    // Update status
+    // Update status to uninstalling first
     db.prepare(`
       UPDATE deployments SET status = 'uninstalling', updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(deploymentId);
@@ -369,22 +372,23 @@ export class Deployer {
       appName: deployment.appName,
     }, deploymentId);
 
-    // Remove proxy route
+    // Remove proxy routes (DB operations, done before transaction to use async proxyManager)
     await proxyManager.unregisterRoute(deploymentId);
-
-    // Remove service routes
     await proxyManager.unregisterServiceRoutesByDeployment(deploymentId);
 
-    // Remove services
-    await serviceRegistry.unregisterServices(deploymentId);
+    // Atomic transaction: services + secrets + deployment deletion
+    runInTransaction(() => {
+      // Remove services
+      serviceRegistry.unregisterServicesSync(deploymentId);
 
-    // Delete secrets
-    await secretsManager.deleteSecrets(deploymentId);
+      // Delete secrets
+      secretsManager.deleteSecretsSync(deploymentId);
 
-    // Delete deployment record
-    db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
+      // Delete deployment record
+      db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
+    });
 
-    // Update Caddy config and reload
+    // Update Caddy config and reload (external operation, outside transaction)
     await proxyManager.updateAndReload();
   }
 
