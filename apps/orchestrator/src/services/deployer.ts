@@ -6,12 +6,13 @@ import { serviceRegistry } from './serviceRegistry.js';
 import { dependencyResolver } from './dependencyResolver.js';
 import { proxyManager } from './proxyManager.js';
 import { sendCommand, isAgentConnected } from '../websocket/agentHandler.js';
-import type { AppManifest, Deployment, DeploymentStatus, ConfigFile } from '@nodefoundry/shared';
+import type { AppManifest, Deployment, DeploymentStatus, ConfigFile } from '@ownprem/shared';
 
 interface DeploymentRow {
   id: string;
   server_id: string;
   app_name: string;
+  group_id: string | null;
   version: string;
   config: string;
   status: string;
@@ -29,7 +30,7 @@ interface AppRegistryRow {
 interface ServerRow {
   id: string;
   host: string | null;
-  is_foundry: number;
+  is_core: number;
 }
 
 export class Deployer {
@@ -37,7 +38,9 @@ export class Deployer {
     serverId: string,
     appName: string,
     userConfig: Record<string, unknown> = {},
-    version?: string
+    version?: string,
+    groupId?: string,
+    serviceBindings?: Record<string, string>
   ): Promise<Deployment> {
     const db = getDb();
 
@@ -59,6 +62,19 @@ export class Deployer {
       throw new Error(`App ${appName} is already deployed on ${serverId}`);
     }
 
+    // Check for conflicts with already installed apps
+    if (manifest.conflicts && manifest.conflicts.length > 0) {
+      const placeholders = manifest.conflicts.map(() => '?').join(',');
+      const conflicting = db.prepare(`
+        SELECT app_name FROM deployments
+        WHERE server_id = ? AND app_name IN (${placeholders})
+      `).get(serverId, ...manifest.conflicts) as { app_name: string } | undefined;
+
+      if (conflicting) {
+        throw new Error(`Cannot install ${appName}: conflicts with ${conflicting.app_name} already installed on this server`);
+      }
+    }
+
     // Validate dependencies
     const validation = await dependencyResolver.validate(manifest, serverId);
     if (!validation.valid) {
@@ -71,7 +87,7 @@ export class Deployer {
     }
 
     // Resolve full config (user config + dependencies + defaults)
-    const resolvedConfig = await dependencyResolver.resolve(manifest, serverId, userConfig);
+    const resolvedConfig = await dependencyResolver.resolve(manifest, serverId, userConfig, serviceBindings);
 
     // Generate secrets for fields marked as generated
     const secrets: Record<string, string> = {};
@@ -91,10 +107,13 @@ export class Deployer {
     const deploymentId = uuidv4();
     const appVersion = version || manifest.version;
 
+    // Use default group if none specified
+    const finalGroupId = groupId || 'default';
+
     db.prepare(`
-      INSERT INTO deployments (id, server_id, app_name, version, config, status, installed_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(deploymentId, serverId, appName, appVersion, JSON.stringify(resolvedConfig));
+      INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
 
     // Store secrets
     if (Object.keys(secrets).length > 0) {
@@ -102,8 +121,8 @@ export class Deployer {
     }
 
     // Get server info for config rendering
-    const server = db.prepare('SELECT host, is_foundry FROM servers WHERE id = ?').get(serverId) as ServerRow;
-    const serverHost = server.is_foundry ? '127.0.0.1' : (server.host || '127.0.0.1');
+    const server = db.prepare('SELECT host, is_core FROM servers WHERE id = ?').get(serverId) as ServerRow;
+    const serverHost = server.is_core ? '127.0.0.1' : (server.host || '127.0.0.1');
 
     // Render config files
     const configFiles = await configRenderer.renderAppConfigs(manifest, resolvedConfig, secrets);
@@ -124,6 +143,18 @@ export class Deployer {
     const uninstallScript = configRenderer.renderUninstallScript(manifest);
     if (uninstallScript) {
       configFiles.push(uninstallScript);
+    }
+
+    // Add start script
+    const startScript = configRenderer.renderStartScript(manifest);
+    if (startScript) {
+      configFiles.push(startScript);
+    }
+
+    // Add stop script
+    const stopScript = configRenderer.renderStopScript(manifest);
+    if (stopScript) {
+      configFiles.push(stopScript);
     }
 
     // Build environment variables for install
@@ -165,15 +196,26 @@ export class Deployer {
       throw new Error(`Failed to send install command to ${serverId}`);
     }
 
-    // Register services
-    for (const service of manifest.provides || []) {
-      await serviceRegistry.registerService(deploymentId, service.name, serverId, service.port);
+    // Register services and their proxy routes
+    for (const serviceDef of manifest.provides || []) {
+      const service = await serviceRegistry.registerService(deploymentId, serviceDef.name, serverId, serviceDef.port);
+      // Register service route through Caddy proxy
+      await proxyManager.registerServiceRoute(
+        service.id,
+        serviceDef.name,
+        serviceDef,
+        serverHost,
+        serviceDef.port
+      );
     }
 
     // Register proxy route if app has webui
     if (manifest.webui?.enabled) {
       await proxyManager.registerRoute(deploymentId, manifest, serverHost);
     }
+
+    // Update Caddy config
+    await proxyManager.updateCaddyConfig();
 
     return (await this.getDeployment(deploymentId))!;
   }
@@ -330,6 +372,9 @@ export class Deployer {
     // Remove proxy route
     await proxyManager.unregisterRoute(deploymentId);
 
+    // Remove service routes
+    await proxyManager.unregisterServiceRoutesByDeployment(deploymentId);
+
     // Remove services
     await serviceRegistry.unregisterServices(deploymentId);
 
@@ -338,6 +383,9 @@ export class Deployer {
 
     // Delete deployment record
     db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
+
+    // Update Caddy config
+    await proxyManager.updateCaddyConfig();
   }
 
   async getDeployment(deploymentId: string): Promise<Deployment | null> {
@@ -377,6 +425,7 @@ export class Deployer {
       id: row.id,
       serverId: row.server_id,
       appName: row.app_name,
+      groupId: row.group_id || undefined,
       version: row.version,
       config: JSON.parse(row.config),
       status: row.status as DeploymentStatus,

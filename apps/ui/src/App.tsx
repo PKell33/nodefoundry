@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
@@ -6,9 +6,26 @@ import Servers from './pages/Servers';
 import Apps from './pages/Apps';
 import Settings from './pages/Settings';
 import { Login } from './pages/Login';
+import { TotpSetup } from './pages/TotpSetup';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { useWebSocket } from './hooks/useWebSocket';
 import { useAuthStore } from './stores/useAuthStore';
+
+// Route that requires authentication but allows users who need TOTP setup
+function TotpSetupRoute() {
+  const { isAuthenticated, totpSetupRequired } = useAuthStore();
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // If TOTP setup is not required, redirect to home
+  if (!totpSetupRequired) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <TotpSetup />;
+}
 
 function App() {
   const { connect, disconnect } = useWebSocket();
@@ -25,6 +42,7 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/setup-2fa" element={<TotpSetupRoute />} />
       <Route
         path="/"
         element={

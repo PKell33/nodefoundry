@@ -51,25 +51,26 @@ describe('AuthService', () => {
     // Clear users table before each test
     db.exec('DELETE FROM users');
     db.exec('DELETE FROM refresh_tokens');
+    db.exec('DELETE FROM user_groups');
   });
 
   describe('createUser', () => {
     it('should create a new user', async () => {
-      const userId = await authService.createUser('testuser', 'password123', 'admin');
+      const userId = await authService.createUser('testuser', 'password123', true);
       expect(userId).toBeDefined();
       expect(typeof userId).toBe('string');
     });
 
     it('should throw error for duplicate username', async () => {
-      await authService.createUser('testuser', 'password123', 'admin');
-      await expect(authService.createUser('testuser', 'password456', 'admin'))
+      await authService.createUser('testuser', 'password123', true);
+      await expect(authService.createUser('testuser', 'password456', true))
         .rejects.toThrow('Username already exists');
     });
   });
 
   describe('validateCredentials', () => {
     beforeEach(async () => {
-      await authService.createUser('testuser', 'correctpassword', 'admin');
+      await authService.createUser('testuser', 'correctpassword', true);
     });
 
     it('should return user for valid credentials', async () => {
@@ -91,7 +92,7 @@ describe('AuthService', () => {
 
   describe('generateTokens', () => {
     it('should generate access and refresh tokens', async () => {
-      await authService.createUser('testuser', 'password123', 'admin');
+      await authService.createUser('testuser', 'password123', true);
       const user = await authService.validateCredentials('testuser', 'password123');
 
       const tokens = authService.generateTokens(user!);
@@ -104,7 +105,7 @@ describe('AuthService', () => {
 
   describe('verifyAccessToken', () => {
     it('should verify a valid token', async () => {
-      await authService.createUser('testuser', 'password123', 'admin');
+      await authService.createUser('testuser', 'password123', true);
       const user = await authService.validateCredentials('testuser', 'password123');
       const tokens = authService.generateTokens(user!);
 
@@ -112,7 +113,7 @@ describe('AuthService', () => {
 
       expect(payload).toBeDefined();
       expect(payload?.username).toBe('testuser');
-      expect(payload?.role).toBe('admin');
+      expect(payload?.isSystemAdmin).toBe(true);
     });
 
     it('should return null for invalid token', () => {
@@ -123,7 +124,7 @@ describe('AuthService', () => {
 
   describe('refreshAccessToken', () => {
     it('should refresh tokens with valid refresh token', async () => {
-      await authService.createUser('testuser', 'password123', 'admin');
+      await authService.createUser('testuser', 'password123', true);
       const user = await authService.validateCredentials('testuser', 'password123');
       const tokens = authService.generateTokens(user!);
 
@@ -142,7 +143,7 @@ describe('AuthService', () => {
 
   describe('changePassword', () => {
     it('should change password with correct old password', async () => {
-      const userId = await authService.createUser('testuser', 'oldpassword', 'admin');
+      const userId = await authService.createUser('testuser', 'oldpassword', true);
 
       const success = await authService.changePassword(userId, 'oldpassword', 'newpassword');
 
@@ -154,7 +155,7 @@ describe('AuthService', () => {
     });
 
     it('should fail with incorrect old password', async () => {
-      const userId = await authService.createUser('testuser', 'oldpassword', 'admin');
+      const userId = await authService.createUser('testuser', 'oldpassword', true);
 
       const success = await authService.changePassword(userId, 'wrongpassword', 'newpassword');
 

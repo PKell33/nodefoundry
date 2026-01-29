@@ -1,143 +1,72 @@
-import { Package, ExternalLink, Play, Square, RotateCw, Trash2 } from 'lucide-react';
+import { Ban } from 'lucide-react';
 import type { AppManifest, Deployment } from '../api/client';
 import StatusBadge from './StatusBadge';
+import AppIcon from './AppIcon';
 
 interface AppCardProps {
   app: AppManifest;
   deployment?: Deployment;
-  onInstall?: () => void;
-  onStart?: () => void;
-  onStop?: () => void;
-  onRestart?: () => void;
-  onUninstall?: () => void;
-  canManage?: boolean;  // Can install/uninstall (admin only)
-  canOperate?: boolean; // Can start/stop/restart (admin + operator)
+  conflictsWith?: string | null;
+  onClick: () => void;
 }
 
-const categoryColors: Record<string, string> = {
-  bitcoin: 'text-bitcoin',
-  lightning: 'text-yellow-400',
-  indexer: 'text-blue-400',
-  explorer: 'text-purple-400',
-  utility: 'text-gray-400',
-};
-
-export default function AppCard({
-  app,
-  deployment,
-  onInstall,
-  onStart,
-  onStop,
-  onRestart,
-  onUninstall,
-  canManage = true,
-  canOperate = true,
-}: AppCardProps) {
+export default function AppCard({ app, deployment, conflictsWith, onClick }: AppCardProps) {
   const isInstalled = !!deployment;
   const isRunning = deployment?.status === 'running';
-  const canControl = isInstalled && !['installing', 'configuring', 'uninstalling'].includes(deployment?.status || '');
+  const isBlocked = !isInstalled && !!conflictsWith;
 
   return (
-    <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
-      <div className="p-4">
-        <div className="flex items-start justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 bg-gray-700 rounded-lg ${categoryColors[app.category] || 'text-gray-400'}`}>
-              <Package size={24} />
-            </div>
-            <div>
-              <h3 className="font-medium">{app.displayName}</h3>
-              <p className="text-sm text-gray-400">v{app.version}</p>
-            </div>
+    <div
+      onClick={onClick}
+      className={`bg-gray-800 rounded-xl border p-6 cursor-pointer transition-all group ${
+        isBlocked
+          ? 'border-gray-700 opacity-60'
+          : 'border-gray-700 hover:border-gray-600 hover:bg-gray-750'
+      }`}
+    >
+      <div className="flex flex-col items-center text-center">
+        {/* Large Icon */}
+        <div className="mb-4 relative">
+          <div className="w-20 h-20 rounded-2xl bg-gray-700 flex items-center justify-center overflow-hidden group-hover:scale-105 transition-transform">
+            <AppIcon appName={app.name} size={64} />
           </div>
-          {deployment && <StatusBadge status={deployment.status} size="sm" />}
+          {/* Status indicator dot */}
+          {isInstalled && (
+            <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-gray-800 ${
+              isRunning ? 'bg-green-500' :
+              deployment?.status === 'error' ? 'bg-red-500' :
+              'bg-yellow-500'
+            }`} />
+          )}
         </div>
 
-        <p className="text-sm text-gray-400 mb-4 line-clamp-2">{app.description}</p>
+        {/* App Name */}
+        <h3 className="font-semibold text-lg mb-1">{app.displayName}</h3>
 
-        {/* Services provided */}
-        {app.provides && app.provides.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-4">
-            {app.provides.map((service) => (
-              <span
-                key={service.name}
-                className="text-xs bg-gray-700 px-2 py-0.5 rounded"
-              >
-                {service.name}
-              </span>
-            ))}
+        {/* Version */}
+        <p className="text-sm text-gray-500 mb-2">v{app.version}</p>
+
+        {/* Brief Description - truncated to 2 lines */}
+        <p className="text-sm text-gray-400 line-clamp-2 mb-3">
+          {app.description}
+        </p>
+
+        {/* Status Badge if installed */}
+        {isInstalled && (
+          <StatusBadge status={deployment.status} size="sm" />
+        )}
+
+        {/* Conflict warning */}
+        {isBlocked && (
+          <div className="flex items-center gap-1 text-xs text-amber-500">
+            <Ban size={12} />
+            <span>Conflicts with {conflictsWith}</span>
           </div>
         )}
 
-        {/* Dependencies */}
-        {app.requires && app.requires.length > 0 && (
-          <div className="text-xs text-gray-500 mb-4">
-            Requires: {app.requires.map((r) => r.service).join(', ')}
-          </div>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="px-4 py-3 bg-gray-750 border-t border-gray-700 flex items-center justify-between">
-        {!isInstalled ? (
-          canManage && (
-            <button
-              onClick={onInstall}
-              className="px-4 py-1.5 bg-bitcoin hover:bg-bitcoin/90 text-black font-medium rounded text-sm transition-colors"
-            >
-              Install
-            </button>
-          )
-        ) : (
-          <div className="flex items-center gap-2">
-            {canControl && canOperate && !isRunning && (
-              <button
-                onClick={onStart}
-                className="p-1.5 hover:bg-gray-700 rounded transition-colors text-green-500"
-                title="Start"
-              >
-                <Play size={18} />
-              </button>
-            )}
-            {canControl && canOperate && isRunning && (
-              <button
-                onClick={onStop}
-                className="p-1.5 hover:bg-gray-700 rounded transition-colors text-yellow-500"
-                title="Stop"
-              >
-                <Square size={18} />
-              </button>
-            )}
-            {canControl && canOperate && isRunning && (
-              <button
-                onClick={onRestart}
-                className="p-1.5 hover:bg-gray-700 rounded transition-colors text-blue-500"
-                title="Restart"
-              >
-                <RotateCw size={18} />
-              </button>
-            )}
-            {canControl && canManage && (
-              <button
-                onClick={onUninstall}
-                className="p-1.5 hover:bg-gray-700 rounded transition-colors text-red-500"
-                title="Uninstall"
-              >
-                <Trash2 size={18} />
-              </button>
-            )}
-          </div>
-        )}
-
-        {app.webui?.enabled && isRunning && (
-          <a
-            href={app.webui.basePath}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-sm text-gray-400 hover:text-white transition-colors"
-          >
-            Open <ExternalLink size={14} />
-          </a>
+        {/* Install hint if not installed and not blocked */}
+        {!isInstalled && !isBlocked && (
+          <span className="text-xs text-gray-500">Click to install</span>
         )}
       </div>
     </div>

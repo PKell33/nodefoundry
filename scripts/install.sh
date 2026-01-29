@@ -1,17 +1,17 @@
 #!/bin/bash
 set -e
 
-# Nodefoundry Installation Script
+# Ownprem Installation Script
 # Usage: sudo ./install.sh [orchestrator|agent|both]
 
 INSTALL_TYPE="${1:-both}"
-NODEFOUNDRY_USER="nodefoundry"
-NODEFOUNDRY_GROUP="nodefoundry"
-REPO_DIR="/opt/nodefoundry/repo"
-APPS_DIR="/opt/nodefoundry/apps"
-DATA_DIR="/var/lib/nodefoundry"
-LOG_DIR="/var/log/nodefoundry"
-CONFIG_DIR="/etc/nodefoundry"
+OWNPREM_USER="ownprem"
+OWNPREM_GROUP="ownprem"
+REPO_DIR="/opt/ownprem/repo"
+APPS_DIR="/opt/ownprem/apps"
+DATA_DIR="/var/lib/ownprem"
+LOG_DIR="/var/log/ownprem"
+CONFIG_DIR="/etc/ownprem"
 
 # Colors for output
 RED='\033[0;31m'
@@ -35,7 +35,7 @@ if [[ ! "$INSTALL_TYPE" =~ ^(orchestrator|agent|both)$ ]]; then
     exit 1
 fi
 
-log_info "Starting Nodefoundry installation (type: $INSTALL_TYPE)"
+log_info "Starting Ownprem installation (type: $INSTALL_TYPE)"
 
 # Check for Node.js
 if ! command -v node &> /dev/null; then
@@ -52,10 +52,10 @@ fi
 
 log_info "Node.js version: $(node -v)"
 
-# Create nodefoundry user if it doesn't exist
-if ! id "$NODEFOUNDRY_USER" &>/dev/null; then
-    log_info "Creating system user: $NODEFOUNDRY_USER"
-    useradd --system --shell /usr/sbin/nologin --home-dir /opt/nodefoundry "$NODEFOUNDRY_USER"
+# Create ownprem user if it doesn't exist
+if ! id "$OWNPREM_USER" &>/dev/null; then
+    log_info "Creating system user: $OWNPREM_USER"
+    useradd --system --shell /usr/sbin/nologin --home-dir /opt/ownprem "$OWNPREM_USER"
 fi
 
 # Create directories
@@ -63,16 +63,16 @@ log_info "Creating directories..."
 mkdir -p "$REPO_DIR" "$APPS_DIR" "$DATA_DIR" "$LOG_DIR" "$CONFIG_DIR"
 
 # Set ownership
-chown -R "$NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP" /opt/nodefoundry
-chown -R "$NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP" "$DATA_DIR"
-chown -R "$NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP" "$LOG_DIR"
+chown -R "$OWNPREM_USER:$OWNPREM_GROUP" /opt/ownprem
+chown -R "$OWNPREM_USER:$OWNPREM_GROUP" "$DATA_DIR"
+chown -R "$OWNPREM_USER:$OWNPREM_GROUP" "$LOG_DIR"
 
 # Check if repo exists, otherwise clone
 if [[ ! -d "$REPO_DIR/.git" ]]; then
     log_warn "Repository not found at $REPO_DIR"
     log_info "Please clone the repository manually:"
     log_info "  git clone <repo-url> $REPO_DIR"
-    log_info "  chown -R $NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP $REPO_DIR"
+    log_info "  chown -R $OWNPREM_USER:$OWNPREM_GROUP $REPO_DIR"
     log_info "Or copy files from current location"
 else
     log_info "Repository found at $REPO_DIR"
@@ -82,10 +82,10 @@ fi
 if [[ -f "$REPO_DIR/package.json" ]]; then
     log_info "Installing dependencies..."
     cd "$REPO_DIR"
-    sudo -u "$NODEFOUNDRY_USER" npm ci --omit=dev 2>/dev/null || sudo -u "$NODEFOUNDRY_USER" npm install --omit=dev
+    sudo -u "$OWNPREM_USER" npm ci --omit=dev 2>/dev/null || sudo -u "$OWNPREM_USER" npm install --omit=dev
 
     log_info "Building application..."
-    sudo -u "$NODEFOUNDRY_USER" npm run build
+    sudo -u "$OWNPREM_USER" npm run build
 fi
 
 # Generate secrets if not exists
@@ -109,7 +109,7 @@ install_orchestrator() {
         sed -i "s/^JWT_SECRET=$/JWT_SECRET=$JWT_SECRET/" "$CONFIG_DIR/orchestrator.env"
 
         chmod 600 "$CONFIG_DIR/orchestrator.env"
-        chown "$NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP" "$CONFIG_DIR/orchestrator.env"
+        chown "$OWNPREM_USER:$OWNPREM_GROUP" "$CONFIG_DIR/orchestrator.env"
 
         log_info "Generated secrets in $CONFIG_DIR/orchestrator.env"
         log_warn "Please review and update CORS_ORIGIN in $CONFIG_DIR/orchestrator.env"
@@ -118,9 +118,9 @@ install_orchestrator() {
     fi
 
     # Install systemd service
-    cp "$REPO_DIR/scripts/systemd/nodefoundry-orchestrator.service" /etc/systemd/system/
+    cp "$REPO_DIR/scripts/systemd/ownprem-orchestrator.service" /etc/systemd/system/
     systemctl daemon-reload
-    systemctl enable nodefoundry-orchestrator
+    systemctl enable ownprem-orchestrator
 
     log_info "Orchestrator service installed"
 }
@@ -133,7 +133,7 @@ install_agent() {
     if [[ ! -f "$CONFIG_DIR/agent.env" ]]; then
         cp "$REPO_DIR/scripts/env/agent.env.example" "$CONFIG_DIR/agent.env"
         chmod 600 "$CONFIG_DIR/agent.env"
-        chown "$NODEFOUNDRY_USER:$NODEFOUNDRY_GROUP" "$CONFIG_DIR/agent.env"
+        chown "$OWNPREM_USER:$OWNPREM_GROUP" "$CONFIG_DIR/agent.env"
 
         log_warn "Please configure SERVER_ID and FOUNDRY_URL in $CONFIG_DIR/agent.env"
     else
@@ -141,9 +141,9 @@ install_agent() {
     fi
 
     # Install systemd service
-    cp "$REPO_DIR/scripts/systemd/nodefoundry-agent.service" /etc/systemd/system/
+    cp "$REPO_DIR/scripts/systemd/ownprem-agent.service" /etc/systemd/system/
     systemctl daemon-reload
-    systemctl enable nodefoundry-agent
+    systemctl enable ownprem-agent
 
     log_info "Agent service installed"
 }
@@ -171,9 +171,9 @@ if [[ "$INSTALL_TYPE" == "orchestrator" || "$INSTALL_TYPE" == "both" ]]; then
     echo ""
     echo "Orchestrator:"
     echo "  1. Review configuration: $CONFIG_DIR/orchestrator.env"
-    echo "  2. Start service: systemctl start nodefoundry-orchestrator"
-    echo "  3. Check status: systemctl status nodefoundry-orchestrator"
-    echo "  4. View logs: journalctl -u nodefoundry-orchestrator -f"
+    echo "  2. Start service: systemctl start ownprem-orchestrator"
+    echo "  3. Check status: systemctl status ownprem-orchestrator"
+    echo "  4. View logs: journalctl -u ownprem-orchestrator -f"
 fi
 
 if [[ "$INSTALL_TYPE" == "agent" || "$INSTALL_TYPE" == "both" ]]; then
@@ -183,14 +183,14 @@ if [[ "$INSTALL_TYPE" == "agent" || "$INSTALL_TYPE" == "both" ]]; then
     echo "     - Set SERVER_ID (unique per server)"
     echo "     - Set FOUNDRY_URL (orchestrator address)"
     echo "     - Set AUTH_TOKEN (from orchestrator)"
-    echo "  2. Start service: systemctl start nodefoundry-agent"
-    echo "  3. Check status: systemctl status nodefoundry-agent"
-    echo "  4. View logs: journalctl -u nodefoundry-agent -f"
+    echo "  2. Start service: systemctl start ownprem-agent"
+    echo "  3. Check status: systemctl status ownprem-agent"
+    echo "  4. View logs: journalctl -u ownprem-agent -f"
 fi
 
 echo ""
 echo "Useful commands:"
-echo "  systemctl start nodefoundry-orchestrator nodefoundry-agent"
-echo "  systemctl stop nodefoundry-orchestrator nodefoundry-agent"
-echo "  systemctl restart nodefoundry-orchestrator nodefoundry-agent"
-echo "  journalctl -u nodefoundry-orchestrator -u nodefoundry-agent -f"
+echo "  systemctl start ownprem-orchestrator ownprem-agent"
+echo "  systemctl stop ownprem-orchestrator ownprem-agent"
+echo "  systemctl restart ownprem-orchestrator ownprem-agent"
+echo "  journalctl -u ownprem-orchestrator -u ownprem-agent -f"

@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { getDb } from '../../db/index.js';
-import { requireRole, Permissions, AuthenticatedRequest } from '../middleware/auth.js';
+import { requireAuth, requireSystemAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 
 const router = Router();
 
@@ -18,9 +18,9 @@ interface AuditLogRow {
 
 /**
  * GET /api/audit-logs
- * List audit log entries (admin only)
+ * List audit log entries (system admin only)
  */
-router.get('/', requireRole(...Permissions.MANAGE), async (req: AuthenticatedRequest, res, next) => {
+router.get('/', requireAuth, requireSystemAdmin, async (req: AuthenticatedRequest, res, next) => {
   try {
     const db = getDb();
     const limit = Math.min(parseInt(req.query.limit as string) || 100, 500);
@@ -80,7 +80,7 @@ router.get('/', requireRole(...Permissions.MANAGE), async (req: AuthenticatedReq
  * GET /api/audit-logs/actions
  * Get list of distinct actions for filtering
  */
-router.get('/actions', requireRole(...Permissions.MANAGE), async (_req, res, next) => {
+router.get('/actions', requireAuth, requireSystemAdmin, async (_req, res, next) => {
   try {
     const db = getDb();
     const rows = db.prepare('SELECT DISTINCT action FROM audit_log ORDER BY action').all() as { action: string }[];

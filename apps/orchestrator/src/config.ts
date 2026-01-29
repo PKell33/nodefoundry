@@ -11,7 +11,7 @@ export const config = {
   isDevelopment,
 
   database: {
-    path: process.env.DATABASE_PATH || join(__dirname, '../../../data/nodefoundry.sqlite'),
+    path: process.env.DATABASE_PATH || join(__dirname, '../../../data/ownprem.sqlite'),
   },
 
   paths: {
@@ -19,6 +19,12 @@ export const config = {
     apps: process.env.APPS_PATH || join(__dirname, '../../../data/apps'),
     appDefinitions: process.env.APP_DEFINITIONS_PATH || join(__dirname, '../../../app-definitions'),
     logs: process.env.LOGS_PATH || join(__dirname, '../../../logs'),
+    caddyConfig: process.env.CADDY_CONFIG_PATH || (isDevelopment ? join(__dirname, '../../../caddy/Caddyfile') : '/etc/caddy/Caddyfile'),
+  },
+
+  caddy: {
+    domain: process.env.CADDY_DOMAIN || 'ownprem.local',
+    reloadCommand: process.env.CADDY_RELOAD_CMD || (isDevelopment ? '' : 'systemctl reload caddy'),
   },
 
   secrets: {

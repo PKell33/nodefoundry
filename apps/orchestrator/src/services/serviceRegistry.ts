@@ -1,6 +1,6 @@
 import { getDb } from '../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
-import type { Service, ServiceConnection } from '@nodefoundry/shared';
+import type { Service, ServiceConnection } from '@ownprem/shared';
 
 interface ServiceRow {
   id: string;

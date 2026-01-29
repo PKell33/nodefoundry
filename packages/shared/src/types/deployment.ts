@@ -2,6 +2,7 @@ export interface Deployment {
   id: string;
   serverId: string;
   appName: string;
+  groupId?: string;
   version: string;
   config: Record<string, unknown>;
   status: DeploymentStatus;

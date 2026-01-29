@@ -1,4 +1,4 @@
-import type { AgentCommand, AgentStatusReport } from '@nodefoundry/shared';
+import type { AgentCommand, AgentStatusReport } from '@ownprem/shared';
 import { Connection } from './connection.js';
 import { Executor } from './executor.js';
 import { Reporter } from './reporter.js';
@@ -16,7 +16,7 @@ class Agent {
     private foundryUrl: string,
     private authToken: string | null
   ) {
-    const appsDir = process.env.APPS_DIR || '/opt/nodefoundry/apps';
+    const appsDir = process.env.APPS_DIR || '/opt/ownprem/apps';
     this.executor = new Executor(appsDir);
     this.reporter = new Reporter(serverId);
 
@@ -31,7 +31,7 @@ class Agent {
   }
 
   async start(): Promise<void> {
-    console.log(`Starting Nodefoundry Agent...`);
+    console.log(`Starting Ownprem Agent...`);
     console.log(`Server ID: ${this.serverId}`);
     console.log(`Foundry URL: ${this.foundryUrl}`);
 

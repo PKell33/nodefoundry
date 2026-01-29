@@ -1,19 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useSystemStatus } from '../hooks/useApi';
 import { useAuthStore } from '../stores/useAuthStore';
-import { api, UserInfo, AuditLogEntry, SessionInfo, TotpStatus } from '../api/client';
-import { Plus, Trash2, User, Shield, Eye, Wrench, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter, Monitor, Smartphone, Globe, LogOut, XCircle, Lock, Key, Copy, Check, ShieldCheck, ShieldOff } from 'lucide-react';
+import { api, UserInfo, AuditLogEntry, SessionInfo, TotpStatus, Group, GroupWithMembers } from '../api/client';
+import { Plus, Trash2, User, Shield, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter, Monitor, Smartphone, Globe, LogOut, XCircle, Lock, Key, Copy, Check, ShieldCheck, ShieldOff, Users, UserPlus, UserMinus } from 'lucide-react';
 
 export default function Settings() {
   const { data: status } = useSystemStatus();
   const { user: currentUser } = useAuthStore();
-  const isAdmin = currentUser?.role === 'admin';
+  const isAdmin = currentUser?.isSystemAdmin;
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold mb-2">Settings</h1>
-        <p className="text-gray-400">Configure your Nodefoundry instance</p>
+        <p className="text-gray-400">Configure your OwnPrem instance</p>
       </div>
 
       {/* Two-Factor Authentication */}
@@ -21,6 +21,9 @@ export default function Settings() {
 
       {/* Session Management */}
       <SessionManagement />
+
+      {/* Group Management - Admin only */}
+      {isAdmin && <GroupManagement />}
 
       {/* User Management - Admin only */}
       {isAdmin && <UserManagement currentUserId={currentUser?.userId} />}
@@ -44,10 +47,10 @@ export default function Settings() {
         <h2 className="text-lg font-semibold mb-4">About</h2>
         <div className="bg-gray-800 rounded-lg border border-gray-700 p-4 space-y-3">
           <InfoRow label="Version" value="0.1.0" />
-          <InfoRow label="Project" value="Nodefoundry" />
+          <InfoRow label="Project" value="OwnPrem" />
           <div className="pt-2">
             <a
-              href="https://github.com/PKell33/nodefoundry"
+              href="https://github.com/PKell33/ownprem"
               target="_blank"
               rel="noopener noreferrer"
               className="text-bitcoin hover:underline text-sm"
@@ -167,7 +170,8 @@ function TwoFactorAuth() {
     <section>
       <div className="flex items-center gap-2 mb-4">
         <Shield size={20} className="dark:text-gray-400 light:text-gray-500" />
-        <h2 className="text-lg font-semibold">Two-Factor Authentication</h2>
+        <h2 className="text-lg font-semibold">Your Two-Factor Authentication</h2>
+        <span className="text-xs text-gray-500">(personal setting)</span>
       </div>
 
       <div className="card p-4">
@@ -313,7 +317,7 @@ function TwoFactorAuth() {
                   <ShieldCheck size={20} className="text-green-400" />
                 </div>
                 <div>
-                  <div className="font-medium">Two-factor authentication is enabled</div>
+                  <div className="font-medium">Your 2FA is enabled</div>
                   <div className="text-sm dark:text-gray-400 light:text-gray-500">
                     {status.backupCodesRemaining} backup codes remaining
                   </div>
@@ -379,7 +383,7 @@ function TwoFactorAuth() {
                 <Lock size={20} className="dark:text-gray-400 light:text-gray-500" />
               </div>
               <div>
-                <div className="font-medium">Two-factor authentication is not enabled</div>
+                <div className="font-medium">Your 2FA is not enabled</div>
                 <div className="text-sm dark:text-gray-400 light:text-gray-500">
                   Add an extra layer of security to your account
                 </div>
@@ -398,11 +402,445 @@ function TwoFactorAuth() {
   );
 }
 
+function GroupManagement() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selectedGroup, setSelectedGroup] = useState<GroupWithMembers | null>(null);
+  const [allUsers, setAllUsers] = useState<UserInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+
+  const fetchGroups = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.getGroups();
+      setGroups(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load groups');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchGroupDetails = async (groupId: string) => {
+    try {
+      const data = await api.getGroup(groupId);
+      setSelectedGroup(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load group details');
+    }
+  };
+
+  const fetchAllUsers = async () => {
+    try {
+      const data = await api.getUsers();
+      setAllUsers(data);
+    } catch {
+      // Ignore - users might not have permission
+    }
+  };
+
+  useEffect(() => {
+    fetchGroups();
+    fetchAllUsers();
+  }, []);
+
+  const handleCreateGroup = async (name: string, description: string, totpRequired: boolean) => {
+    try {
+      const newGroup = await api.createGroup(name, description, totpRequired);
+      setGroups([...groups, newGroup]);
+      setShowCreateForm(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create group');
+    }
+  };
+
+  const handleUpdateGroup = async (groupId: string, totpRequired: boolean) => {
+    try {
+      await api.updateGroup(groupId, { totpRequired });
+      setGroups(groups.map(g => g.id === groupId ? { ...g, totp_required: totpRequired } : g));
+      if (selectedGroup?.id === groupId) {
+        setSelectedGroup({ ...selectedGroup, totp_required: totpRequired });
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update group');
+    }
+  };
+
+  const handleDeleteGroup = async (groupId: string, groupName: string) => {
+    if (groupId === 'default') {
+      alert('Cannot delete the default group');
+      return;
+    }
+    if (!confirm(`Delete group "${groupName}"? Members will be removed from this group.`)) {
+      return;
+    }
+    try {
+      await api.deleteGroup(groupId);
+      setGroups(groups.filter(g => g.id !== groupId));
+      if (selectedGroup?.id === groupId) {
+        setSelectedGroup(null);
+      }
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete group');
+    }
+  };
+
+  const handleAddMember = async (userId: string, role: 'admin' | 'operator' | 'viewer') => {
+    if (!selectedGroup) return;
+    try {
+      await api.addUserToGroup(selectedGroup.id, userId, role);
+      await fetchGroupDetails(selectedGroup.id);
+      setShowAddMember(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to add member');
+    }
+  };
+
+  const handleUpdateMemberRole = async (userId: string, role: 'admin' | 'operator' | 'viewer') => {
+    if (!selectedGroup) return;
+    try {
+      await api.updateUserGroupRole(selectedGroup.id, userId, role);
+      await fetchGroupDetails(selectedGroup.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to update role');
+    }
+  };
+
+  const handleRemoveMember = async (userId: string, username: string) => {
+    if (!selectedGroup) return;
+    if (!confirm(`Remove "${username}" from this group?`)) return;
+    try {
+      await api.removeUserFromGroup(selectedGroup.id, userId);
+      await fetchGroupDetails(selectedGroup.id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to remove member');
+    }
+  };
+
+  // Filter out users who are already members OR are system admins (they have full access already)
+  const nonMembers = allUsers.filter(u =>
+    !selectedGroup?.members.some(m => m.userId === u.id) && !u.is_system_admin
+  );
+
+  return (
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Users size={20} className="text-gray-400" />
+          <h2 className="text-lg font-semibold">Group Management</h2>
+        </div>
+        <button
+          onClick={() => setShowCreateForm(!showCreateForm)}
+          className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition-colors"
+        >
+          <Plus size={16} />
+          New Group
+        </button>
+      </div>
+
+      {showCreateForm && (
+        <CreateGroupForm
+          onSubmit={handleCreateGroup}
+          onCancel={() => setShowCreateForm(false)}
+        />
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Groups List */}
+        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 bg-gray-700/50 border-b border-gray-700">
+            <h3 className="font-medium">Groups</h3>
+          </div>
+          {loading ? (
+            <div className="p-8 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+            </div>
+          ) : error ? (
+            <div className="p-4 flex items-center gap-3 text-red-400">
+              <AlertCircle size={20} />
+              <span>{error}</span>
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="p-8 text-center text-gray-400">No groups found</div>
+          ) : (
+            <div className="divide-y divide-gray-700">
+              {groups.map(group => (
+                <div
+                  key={group.id}
+                  className={`p-4 cursor-pointer transition-colors ${
+                    selectedGroup?.id === group.id
+                      ? 'bg-blue-600/20 border-l-2 border-blue-500'
+                      : 'hover:bg-gray-700/50'
+                  }`}
+                  onClick={() => fetchGroupDetails(group.id)}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-medium flex items-center gap-2">
+                        {group.name}
+                        {group.id === 'default' && (
+                          <span className="text-xs bg-gray-600 px-2 py-0.5 rounded">Default</span>
+                        )}
+                      </div>
+                      <div className="text-sm text-gray-400">{group.description || 'No description'}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {group.totp_required && (
+                        <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded flex items-center gap-1">
+                          <Shield size={12} />
+                          2FA Required
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Group Details */}
+        <div className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+          <div className="px-4 py-3 bg-gray-700/50 border-b border-gray-700 flex items-center justify-between">
+            <h3 className="font-medium">
+              {selectedGroup ? selectedGroup.name : 'Select a group'}
+            </h3>
+            {selectedGroup && selectedGroup.id !== 'default' && (
+              <button
+                onClick={() => handleDeleteGroup(selectedGroup.id, selectedGroup.name)}
+                className="p-1.5 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                title="Delete group"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+
+          {selectedGroup ? (
+            <div className="p-4 space-y-4">
+              {/* Group Settings */}
+              <div className="flex items-center justify-between p-3 bg-gray-700/30 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Shield size={16} className="text-gray-400" />
+                  <span className="text-sm">Require 2FA for members</span>
+                </div>
+                {selectedGroup.id === 'default' ? (
+                  <span className="text-xs text-gray-500">Not available for default group</span>
+                ) : (
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroup.totp_required}
+                      onChange={(e) => handleUpdateGroup(selectedGroup.id, e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                )}
+              </div>
+
+              {/* Members */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-medium text-gray-300">Members ({selectedGroup.members.length})</h4>
+                  <button
+                    onClick={() => setShowAddMember(!showAddMember)}
+                    className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                  >
+                    <UserPlus size={14} />
+                    Add Member
+                  </button>
+                </div>
+
+                {showAddMember && nonMembers.length > 0 && (
+                  <div className="mb-3 p-3 bg-gray-700/50 rounded-lg space-y-2">
+                    <AddMemberForm
+                      users={nonMembers}
+                      onAdd={handleAddMember}
+                      onCancel={() => setShowAddMember(false)}
+                    />
+                  </div>
+                )}
+
+                {selectedGroup.members.length === 0 ? (
+                  <div className="text-sm text-gray-500 text-center py-4">No members</div>
+                ) : (
+                  <div className="space-y-2">
+                    {selectedGroup.members.map(member => (
+                      <div key={member.userId} className="flex items-center justify-between p-2 bg-gray-700/30 rounded">
+                        <div className="flex items-center gap-2">
+                          <div className="w-7 h-7 bg-gray-600 rounded-full flex items-center justify-center">
+                            <User size={14} className="text-gray-300" />
+                          </div>
+                          <span className="text-sm">{member.username}</span>
+                          {member.isSystemAdmin && (
+                            <span className="text-xs bg-yellow-600/30 text-yellow-400 px-1.5 py-0.5 rounded">Admin</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleUpdateMemberRole(member.userId, e.target.value as 'admin' | 'operator' | 'viewer')}
+                            className="text-xs bg-gray-700 border border-gray-600 rounded px-2 py-1"
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="operator">Operator</option>
+                            <option value="viewer">Viewer</option>
+                          </select>
+                          <button
+                            onClick={() => handleRemoveMember(member.userId, member.username)}
+                            className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+                            title="Remove from group"
+                          >
+                            <UserMinus size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-8 text-center text-gray-500">
+              Select a group to view details and manage members
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CreateGroupForm({ onSubmit, onCancel }: {
+  onSubmit: (name: string, description: string, totpRequired: boolean) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [totpRequired, setTotpRequired] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    onSubmit(name, description, totpRequired);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-gray-800 rounded-lg border border-gray-700 p-4 mb-4">
+      <h3 className="font-medium mb-4">Create New Group</h3>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Group Name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+            placeholder="e.g., Operators"
+            required
+            minLength={2}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-1">Description</label>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+            placeholder="Optional description"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            id="totpRequired"
+            checked={totpRequired}
+            onChange={(e) => setTotpRequired(e.target.checked)}
+            className="w-4 h-4 rounded border-gray-600 bg-gray-700"
+          />
+          <label htmlFor="totpRequired" className="text-sm text-gray-300">
+            Require 2FA for all members
+          </label>
+        </div>
+      </div>
+      <div className="flex justify-end gap-3 mt-4">
+        <button type="button" onClick={onCancel} className="px-4 py-2 text-gray-300 hover:text-white">
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={!name.trim()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed rounded-lg font-medium"
+        >
+          Create Group
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function AddMemberForm({ users, onAdd, onCancel }: {
+  users: UserInfo[];
+  onAdd: (userId: string, role: 'admin' | 'operator' | 'viewer') => void;
+  onCancel: () => void;
+}) {
+  const [selectedUser, setSelectedUser] = useState('');
+  const [role, setRole] = useState<'admin' | 'operator' | 'viewer'>('viewer');
+
+  return (
+    <div className="flex items-end gap-2">
+      <div className="flex-1">
+        <label className="block text-xs text-gray-400 mb-1">User</label>
+        <select
+          value={selectedUser}
+          onChange={(e) => setSelectedUser(e.target.value)}
+          className="w-full px-2 py-1.5 text-sm bg-gray-700 border border-gray-600 rounded"
+        >
+          <option value="">Select user...</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>{u.username}</option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs text-gray-400 mb-1">Role</label>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as 'admin' | 'operator' | 'viewer')}
+          className="px-2 py-1.5 text-sm bg-gray-700 border border-gray-600 rounded"
+        >
+          <option value="viewer">Viewer</option>
+          <option value="operator">Operator</option>
+          <option value="admin">Admin</option>
+        </select>
+      </div>
+      <button
+        onClick={() => selectedUser && onAdd(selectedUser, role)}
+        disabled={!selectedUser}
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-600 rounded text-sm"
+      >
+        Add
+      </button>
+      <button
+        onClick={onCancel}
+        className="px-3 py-1.5 text-gray-400 hover:text-white text-sm"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
 function UserManagement({ currentUserId }: { currentUserId?: string }) {
   const [users, setUsers] = useState<UserInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [resettingTotp, setResettingTotp] = useState<string | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -431,6 +869,22 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
       setUsers(users.filter(u => u.id !== userId));
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Failed to delete user');
+    }
+  };
+
+  const handleResetTotp = async (userId: string, username: string) => {
+    if (!confirm(`Reset 2FA for user "${username}"? They will need to set up 2FA again on their next login.`)) {
+      return;
+    }
+
+    try {
+      setResettingTotp(userId);
+      await api.resetUserTotp(userId);
+      setUsers(users.map(u => u.id === userId ? { ...u, totp_enabled: false } : u));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to reset 2FA');
+    } finally {
+      setResettingTotp(null);
     }
   };
 
@@ -478,7 +932,8 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
             <thead className="bg-gray-700/50">
               <tr>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">User</th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Role</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Access</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">2FA</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Created</th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-300">Last Login</th>
                 <th className="px-4 py-3 text-right text-sm font-medium text-gray-300">Actions</th>
@@ -499,7 +954,38 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <RoleBadge role={user.role} />
+                    {user.is_system_admin ? (
+                      <div className="flex items-center gap-2">
+                        <Shield size={14} className="text-yellow-500" />
+                        <span className="text-yellow-500">System Admin</span>
+                      </div>
+                    ) : user.groups?.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {user.groups.slice(0, 2).map(g => (
+                          <span key={g.groupId} className="text-xs px-2 py-0.5 rounded bg-gray-700">
+                            {g.groupName}: {g.role}
+                          </span>
+                        ))}
+                        {user.groups.length > 2 && (
+                          <span className="text-xs text-gray-500">+{user.groups.length - 2}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-gray-500 text-sm">No groups</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {user.totp_enabled ? (
+                      <div className="flex items-center gap-1.5 text-green-400">
+                        <ShieldCheck size={14} />
+                        <span className="text-sm">Enabled</span>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 text-gray-500">
+                        <ShieldOff size={14} />
+                        <span className="text-sm">Disabled</span>
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-sm">
                     {new Date(user.created_at).toLocaleDateString()}
@@ -510,15 +996,31 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
                       : 'Never'}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    {user.id !== currentUserId && (
-                      <button
-                        onClick={() => handleDeleteUser(user.id, user.username)}
-                        className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
-                        title="Delete user"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {user.id !== currentUserId && user.totp_enabled && (
+                        <button
+                          onClick={() => handleResetTotp(user.id, user.username)}
+                          disabled={resettingTotp === user.id}
+                          className="p-2 text-gray-400 hover:text-yellow-400 hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                          title="Reset 2FA"
+                        >
+                          {resettingTotp === user.id ? (
+                            <Loader2 size={16} className="animate-spin" />
+                          ) : (
+                            <Key size={16} />
+                          )}
+                        </button>
+                      )}
+                      {user.id !== currentUserId && (
+                        <button
+                          onClick={() => handleDeleteUser(user.id, user.username)}
+                          className="p-2 text-gray-400 hover:text-red-400 hover:bg-gray-700 rounded transition-colors"
+                          title="Delete user"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -1033,31 +1535,6 @@ function AuditLog() {
   );
 }
 
-function RoleBadge({ role }: { role: string }) {
-  switch (role) {
-    case 'admin':
-      return (
-        <div className="flex items-center gap-2">
-          <Shield size={14} className="text-yellow-500" />
-          <span className="text-yellow-500">Admin</span>
-        </div>
-      );
-    case 'operator':
-      return (
-        <div className="flex items-center gap-2">
-          <Wrench size={14} className="text-blue-400" />
-          <span className="text-blue-400">Operator</span>
-        </div>
-      );
-    default:
-      return (
-        <div className="flex items-center gap-2">
-          <Eye size={14} className="text-gray-400" />
-          <span className="text-gray-400">Viewer</span>
-        </div>
-      );
-  }
-}
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (

@@ -1,7 +1,7 @@
 import { getDb } from '../db/index.js';
 import { serviceRegistry } from './serviceRegistry.js';
 import { secretsManager } from './secretsManager.js';
-import type { AppManifest, ServiceRequirement } from '@nodefoundry/shared';
+import type { AppManifest, ServiceRequirement } from '@ownprem/shared';
 
 export interface ValidationResult {
   valid: boolean;

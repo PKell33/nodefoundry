@@ -1,5 +1,5 @@
 {
-  "name": "@nodefoundry/agent",
+  "name": "@ownprem/agent",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@nodefoundry/shared": "*",
+    "@ownprem/shared": "*",
     "socket.io-client": "^4.7.4"
   },
   "devDependencies": {

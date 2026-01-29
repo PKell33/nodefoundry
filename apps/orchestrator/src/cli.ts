@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Nodefoundry CLI
+ * Ownprem CLI
  * Management commands for the orchestrator
  */
 
@@ -13,7 +13,7 @@ const command = args[0];
 
 function printUsage() {
   console.log(`
-Nodefoundry CLI
+Ownprem CLI
 
 Usage: node dist/cli.js <command> [options]
 
@@ -98,7 +98,7 @@ function createAgentToken(serverId: string) {
     }
 
     // Generate token
-    const token = `nf_${randomUUID().replace(/-/g, '')}`;
+    const token = `op_${randomUUID().replace(/-/g, '')}`;
     const tokenHash = hashToken(token);
     const id = randomUUID();
 

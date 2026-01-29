@@ -10,12 +10,35 @@ interface UserRow {
   id: string;
   username: string;
   password_hash: string;
-  role: string;
+  is_system_admin: boolean;
   totp_secret: string | null;
   totp_enabled: boolean;
   backup_codes: string | null;
   created_at: string;
   last_login_at: string | null;
+}
+
+export interface GroupRow {
+  id: string;
+  name: string;
+  description: string | null;
+  totp_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserGroupRow {
+  user_id: string;
+  group_id: string;
+  role: 'admin' | 'operator' | 'viewer';
+  created_at: string;
+}
+
+export interface UserGroupMembership {
+  groupId: string;
+  groupName: string;
+  role: 'admin' | 'operator' | 'viewer';
+  totpRequired: boolean;
 }
 
 export interface TotpSetupResult {
@@ -53,7 +76,7 @@ export interface SessionMetadata {
 export interface TokenPayload {
   userId: string;
   username: string;
-  role: string;
+  isSystemAdmin: boolean;
 }
 
 export interface AuthTokens {
@@ -70,7 +93,7 @@ class AuthService {
     return config.jwt.secret;
   }
 
-  async createUser(username: string, password: string, role: string = 'admin'): Promise<string> {
+  async createUser(username: string, password: string, isSystemAdmin: boolean = false): Promise<string> {
     const db = getDb();
 
     // Check if user exists
@@ -83,9 +106,15 @@ class AuthService {
     const passwordHash = await bcrypt.hash(password, config.security.bcryptRounds);
 
     db.prepare(`
-      INSERT INTO users (id, username, password_hash, role, created_at, updated_at)
+      INSERT INTO users (id, username, password_hash, is_system_admin, created_at, updated_at)
       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).run(id, username, passwordHash, role);
+    `).run(id, username, passwordHash, isSystemAdmin ? 1 : 0);
+
+    // Add non-system-admin users to default group as viewer
+    // System admins have full access and don't need group membership
+    if (!isSystemAdmin) {
+      this.addUserToGroup(id, 'default', 'viewer');
+    }
 
     return id;
   }
@@ -115,7 +144,7 @@ class AuthService {
     const payload: TokenPayload = {
       userId: user.id,
       username: user.username,
-      role: user.role,
+      isSystemAdmin: user.is_system_admin,
     };
 
     const accessToken = jwt.sign(payload, this.getJwtSecret(), {
@@ -292,15 +321,215 @@ class AuthService {
     return true;
   }
 
-  getUser(userId: string): Omit<UserRow, 'password_hash'> | null {
+  getUser(userId: string): Omit<UserRow, 'password_hash' | 'totp_secret' | 'backup_codes'> | null {
     const db = getDb();
-    const user = db.prepare('SELECT id, username, role, created_at, last_login_at FROM users WHERE id = ?').get(userId) as Omit<UserRow, 'password_hash'> | undefined;
+    const user = db.prepare('SELECT id, username, is_system_admin, totp_enabled, created_at, last_login_at FROM users WHERE id = ?').get(userId) as Omit<UserRow, 'password_hash' | 'totp_secret' | 'backup_codes'> | undefined;
     return user || null;
   }
 
-  listUsers(): Omit<UserRow, 'password_hash'>[] {
+  listUsers(): (Omit<UserRow, 'password_hash' | 'totp_secret' | 'backup_codes'> & { groups: UserGroupMembership[] })[] {
     const db = getDb();
-    return db.prepare('SELECT id, username, role, created_at, last_login_at FROM users ORDER BY created_at').all() as Omit<UserRow, 'password_hash'>[];
+    const users = db.prepare('SELECT id, username, is_system_admin, totp_enabled, created_at, last_login_at FROM users ORDER BY created_at').all() as Omit<UserRow, 'password_hash' | 'totp_secret' | 'backup_codes'>[];
+
+    return users.map(user => ({
+      ...user,
+      groups: this.getUserGroups(user.id),
+    }));
+  }
+
+  // Group methods
+  createGroup(name: string, description?: string, totpRequired: boolean = false): string {
+    const db = getDb();
+
+    const existing = db.prepare('SELECT id FROM groups WHERE name = ?').get(name);
+    if (existing) {
+      throw new Error('Group name already exists');
+    }
+
+    const id = randomUUID();
+    db.prepare(`
+      INSERT INTO groups (id, name, description, totp_required, created_at, updated_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(id, name, description || null, totpRequired ? 1 : 0);
+
+    return id;
+  }
+
+  updateGroup(groupId: string, updates: { name?: string; description?: string; totpRequired?: boolean }): boolean {
+    const db = getDb();
+
+    const group = db.prepare('SELECT id FROM groups WHERE id = ?').get(groupId);
+    if (!group) {
+      return false;
+    }
+
+    // Prevent enabling 2FA on default group
+    if (groupId === 'default' && updates.totpRequired) {
+      throw new Error('Cannot require 2FA for the default group');
+    }
+
+    if (updates.name) {
+      const existing = db.prepare('SELECT id FROM groups WHERE name = ? AND id != ?').get(updates.name, groupId);
+      if (existing) {
+        throw new Error('Group name already exists');
+      }
+    }
+
+    const setClauses: string[] = ['updated_at = CURRENT_TIMESTAMP'];
+    const values: (string | number)[] = [];
+
+    if (updates.name !== undefined) {
+      setClauses.push('name = ?');
+      values.push(updates.name);
+    }
+    if (updates.description !== undefined) {
+      setClauses.push('description = ?');
+      values.push(updates.description);
+    }
+    if (updates.totpRequired !== undefined) {
+      setClauses.push('totp_required = ?');
+      values.push(updates.totpRequired ? 1 : 0);
+    }
+
+    values.push(groupId);
+    db.prepare(`UPDATE groups SET ${setClauses.join(', ')} WHERE id = ?`).run(...values);
+    return true;
+  }
+
+  deleteGroup(groupId: string): boolean {
+    const db = getDb();
+
+    // Prevent deleting default group
+    if (groupId === 'default') {
+      throw new Error('Cannot delete the default group');
+    }
+
+    const result = db.prepare('DELETE FROM groups WHERE id = ?').run(groupId);
+    return result.changes > 0;
+  }
+
+  getGroup(groupId: string): GroupRow | null {
+    const db = getDb();
+    return db.prepare('SELECT * FROM groups WHERE id = ?').get(groupId) as GroupRow | undefined || null;
+  }
+
+  listGroups(): GroupRow[] {
+    const db = getDb();
+    return db.prepare('SELECT * FROM groups ORDER BY name').all() as GroupRow[];
+  }
+
+  // User-Group membership methods
+  addUserToGroup(userId: string, groupId: string, role: 'admin' | 'operator' | 'viewer'): void {
+    const db = getDb();
+
+    db.prepare(`
+      INSERT OR REPLACE INTO user_groups (user_id, group_id, role, created_at)
+      VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(userId, groupId, role);
+  }
+
+  removeUserFromGroup(userId: string, groupId: string): boolean {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM user_groups WHERE user_id = ? AND group_id = ?').run(userId, groupId);
+    return result.changes > 0;
+  }
+
+  updateUserGroupRole(userId: string, groupId: string, role: 'admin' | 'operator' | 'viewer'): boolean {
+    const db = getDb();
+    const result = db.prepare('UPDATE user_groups SET role = ? WHERE user_id = ? AND group_id = ?').run(role, userId, groupId);
+    return result.changes > 0;
+  }
+
+  getUserGroups(userId: string): UserGroupMembership[] {
+    const db = getDb();
+    const memberships = db.prepare(`
+      SELECT ug.group_id, g.name, ug.role, g.totp_required
+      FROM user_groups ug
+      JOIN groups g ON g.id = ug.group_id
+      WHERE ug.user_id = ?
+      ORDER BY g.name
+    `).all(userId) as { group_id: string; name: string; role: 'admin' | 'operator' | 'viewer'; totp_required: boolean }[];
+
+    return memberships.map(m => ({
+      groupId: m.group_id,
+      groupName: m.name,
+      role: m.role,
+      totpRequired: !!m.totp_required,
+    }));
+  }
+
+  getGroupMembers(groupId: string): { userId: string; username: string; role: 'admin' | 'operator' | 'viewer'; isSystemAdmin: boolean }[] {
+    const db = getDb();
+    return db.prepare(`
+      SELECT u.id as userId, u.username, ug.role, u.is_system_admin as isSystemAdmin
+      FROM user_groups ug
+      JOIN users u ON u.id = ug.user_id
+      WHERE ug.group_id = ?
+      ORDER BY u.username
+    `).all(groupId) as { userId: string; username: string; role: 'admin' | 'operator' | 'viewer'; isSystemAdmin: boolean }[];
+  }
+
+  getUserRoleInGroup(userId: string, groupId: string): 'admin' | 'operator' | 'viewer' | null {
+    const db = getDb();
+    const membership = db.prepare('SELECT role FROM user_groups WHERE user_id = ? AND group_id = ?').get(userId, groupId) as { role: 'admin' | 'operator' | 'viewer' } | undefined;
+    return membership?.role || null;
+  }
+
+  // Check if user requires 2FA based on any group membership
+  userRequiresTotp(userId: string): boolean {
+    const db = getDb();
+    const result = db.prepare(`
+      SELECT COUNT(*) as count
+      FROM user_groups ug
+      JOIN groups g ON g.id = ug.group_id
+      WHERE ug.user_id = ? AND g.totp_required = TRUE
+    `).get(userId) as { count: number };
+    return result.count > 0;
+  }
+
+  // Check if user can disable their own TOTP (only if no group requires it)
+  canUserDisableTotp(userId: string): boolean {
+    return !this.userRequiresTotp(userId);
+  }
+
+  // Get user's highest role across all groups (for display purposes)
+  getUserHighestRole(userId: string): 'admin' | 'operator' | 'viewer' | null {
+    const db = getDb();
+    const user = db.prepare('SELECT is_system_admin FROM users WHERE id = ?').get(userId) as { is_system_admin: boolean } | undefined;
+
+    if (user?.is_system_admin) {
+      return 'admin';
+    }
+
+    const membership = db.prepare(`
+      SELECT role FROM user_groups WHERE user_id = ?
+      ORDER BY CASE role
+        WHEN 'admin' THEN 1
+        WHEN 'operator' THEN 2
+        WHEN 'viewer' THEN 3
+      END
+      LIMIT 1
+    `).get(userId) as { role: 'admin' | 'operator' | 'viewer' } | undefined;
+
+    return membership?.role || null;
+  }
+
+  isSystemAdmin(userId: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT is_system_admin FROM users WHERE id = ?').get(userId) as { is_system_admin: boolean } | undefined;
+    return !!user?.is_system_admin;
+  }
+
+  setSystemAdmin(userId: string, isAdmin: boolean): boolean {
+    const db = getDb();
+    const result = db.prepare('UPDATE users SET is_system_admin = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(isAdmin ? 1 : 0, userId);
+    return result.changes > 0;
+  }
+
+  deleteUser(userId: string): boolean {
+    const db = getDb();
+    const result = db.prepare('DELETE FROM users WHERE id = ?').run(userId);
+    return result.changes > 0;
   }
 
   // TOTP Methods
@@ -333,7 +562,7 @@ class AuthService {
 
     // Create TOTP instance
     const totp = new OTPAuth.TOTP({
-      issuer: 'NodeFoundry',
+      issuer: 'OwnPrem',
       label: user.username,
       algorithm: 'SHA1',
       digits: 6,
@@ -386,7 +615,7 @@ class AuthService {
 
     // Verify the code
     const totp = new OTPAuth.TOTP({
-      issuer: 'NodeFoundry',
+      issuer: 'OwnPrem',
       algorithm: 'SHA1',
       digits: 6,
       period: 30,
@@ -413,7 +642,7 @@ class AuthService {
 
     // First try TOTP code
     const totp = new OTPAuth.TOTP({
-      issuer: 'NodeFoundry',
+      issuer: 'OwnPrem',
       algorithm: 'SHA1',
       digits: 6,
       period: 30,
@@ -449,6 +678,12 @@ class AuthService {
 
   async disableTotpWithPassword(userId: string, password: string): Promise<boolean> {
     const db = getDb();
+
+    // Check if user can disable TOTP (no group requires it)
+    if (!this.canUserDisableTotp(userId)) {
+      throw new Error('Cannot disable 2FA: one or more of your groups requires it');
+    }
+
     const user = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId) as { password_hash: string } | undefined;
 
     if (!user) {
@@ -457,6 +692,24 @@ class AuthService {
 
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      return false;
+    }
+
+    db.prepare(`
+      UPDATE users
+      SET totp_secret = NULL, totp_enabled = FALSE, backup_codes = NULL, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(userId);
+
+    return true;
+  }
+
+  // Admin reset - doesn't require password, just admin permission
+  resetTotpForUser(userId: string): boolean {
+    const db = getDb();
+    const user = db.prepare('SELECT id, totp_enabled FROM users WHERE id = ?').get(userId) as { id: string; totp_enabled: boolean } | undefined;
+
+    if (!user) {
       return false;
     }
 
@@ -516,7 +769,8 @@ class AuthService {
       // Create default admin user in development
       if (config.isDevelopment) {
         const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin';
-        await this.createUser('admin', defaultPassword, 'admin');
+        await this.createUser('admin', defaultPassword, true); // isSystemAdmin = true
+        // System admins don't need group membership - they have full access
         console.log('Created default admin user (username: admin)');
       } else {
         console.warn('No users exist. Create an admin user with: POST /api/auth/setup');

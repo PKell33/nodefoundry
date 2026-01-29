@@ -7,7 +7,7 @@ import { secretsManager } from './services/secretsManager.js';
 import logger from './lib/logger.js';
 
 async function main(): Promise<void> {
-  logger.info({ env: config.nodeEnv }, 'Starting Nodefoundry Orchestrator');
+  logger.info({ env: config.nodeEnv }, 'Starting Ownprem Orchestrator');
 
   // Validate secrets configuration (will throw in production without SECRETS_KEY)
   secretsManager.validateConfiguration();

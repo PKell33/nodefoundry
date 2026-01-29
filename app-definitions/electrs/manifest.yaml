@@ -1,0 +1,70 @@
+name: electrs
+displayName: Electrs
+description: Efficient Electrum Server implementation in Rust
+version: 0.10.6
+category: indexer
+
+source:
+  type: git
+  githubRepo: romanz/electrs
+  gitUrl: https://github.com/romanz/electrs.git
+  tagPrefix: v
+
+requires:
+  - service: bitcoin-rpc
+    locality: prefer-same-server
+    injectAs:
+      host: daemon_rpc_host
+      port: daemon_rpc_port
+      credentials:
+        rpcuser: daemon_rpc_user
+        rpcpassword: daemon_rpc_pass
+
+provides:
+  - name: electrs-rpc
+    port: 50001
+    protocol: tcp
+  - name: electrs-http
+    port: 3002
+    protocol: http
+
+tor:
+  - name: electrs
+    virtualPort: 50001
+    targetPort: 50001
+
+configSchema:
+  - name: network
+    type: string
+    label: Network
+    inheritFrom: bitcoin.network
+  - name: daemon_rpc_host
+    type: string
+    label: Bitcoin RPC Host
+    default: "127.0.0.1"
+  - name: daemon_rpc_port
+    type: number
+    label: Bitcoin RPC Port
+    default: 8332
+  - name: daemon_rpc_user
+    type: string
+    label: Bitcoin RPC User
+    secret: true
+  - name: daemon_rpc_pass
+    type: password
+    label: Bitcoin RPC Password
+    secret: true
+  - name: log_filters
+    type: select
+    label: Log Level
+    options: [ERROR, WARN, INFO, DEBUG, TRACE]
+    default: INFO
+  - name: index_batch_size
+    type: number
+    label: Index Batch Size
+    description: Number of blocks to index per batch
+    default: 10
+
+resources:
+  minDisk: 50GB
+  minMemory: 4GB

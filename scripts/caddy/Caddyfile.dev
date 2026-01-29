@@ -1,11 +1,12 @@
-# Nodefoundry Development Caddyfile
+# OwnPrem Development Caddyfile
 # Proxies to Vite dev server and API
+# Service routes are dynamically added by the orchestrator
 
 {
 	local_certs
 }
 
-foundry.local {
+ownprem.local {
 	tls internal
 
 	# API proxy
@@ -27,8 +28,21 @@ foundry.local {
 		reverse_proxy localhost:3001
 	}
 
+	# HTTP Service Routes (added dynamically)
+	# Example: /services/bitcoin-rpc -> localhost:8332
+	handle /services/* {
+		reverse_proxy localhost:3001
+	}
+
 	# Everything else to Vite dev server
 	handle {
 		reverse_proxy localhost:5173
 	}
 }
+
+# ========================================
+# TCP Service Proxying (requires layer4)
+# Build with: ./scripts/caddy/build-caddy-l4.sh
+# ========================================
+# TCP routes for Electrs, etc. are managed by orchestrator
+# and written to the generated Caddyfile

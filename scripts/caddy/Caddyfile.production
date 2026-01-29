@@ -1,4 +1,4 @@
-# Nodefoundry Production Caddyfile
+# Ownprem Production Caddyfile
 # Automatic HTTPS with Let's Encrypt
 #
 # Usage:
@@ -33,7 +33,7 @@
 	}
 
 	# Serve static UI files
-	root * /opt/nodefoundry/repo/apps/ui/dist
+	root * /opt/ownprem/repo/apps/ui/dist
 
 	# API proxy
 	handle /api/* {
@@ -84,7 +84,7 @@
 
 	# Logging
 	log {
-		output file /var/log/caddy/nodefoundry-access.log {
+		output file /var/log/caddy/ownprem-access.log {
 			roll_size 100mb
 			roll_keep 5
 			roll_keep_for 720h

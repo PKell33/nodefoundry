@@ -50,15 +50,15 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed md:static inset-y-0 left-0 z-50
-          w-64 sidebar flex flex-col
+          fixed inset-y-0 left-0 z-50
+          w-64 h-screen sidebar flex flex-col
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
       >
         <div className="p-4 border-b border-gray-700 dark:border-gray-700 light:border-gray-200 flex items-center justify-between">
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <span className="text-bitcoin">N</span>odefoundry
+          <h1 className="text-xl font-bold">
+            <span className="text-bitcoin">O</span>wnPrem
           </h1>
           {/* Mobile close button */}
           <button
@@ -69,7 +69,7 @@ export default function Layout() {
           </button>
         </div>
 
-        <nav className="p-4 space-y-2 flex-1">
+        <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
           <NavItem to="/" icon={<LayoutDashboard size={20} />} label="Dashboard" />
           <NavItem to="/servers" icon={<Server size={20} />} label="Servers" />
           <NavItem to="/apps" icon={<Package size={20} />} label="Apps" />
@@ -118,7 +118,9 @@ export default function Layout() {
             </div>
             <div className="flex-1 text-left">
               <p className="text-sm font-medium">{user?.username || 'User'}</p>
-              <p className="text-xs dark:text-gray-400 light:text-gray-500">{user?.role || 'admin'}</p>
+              <p className="text-xs dark:text-gray-400 light:text-gray-500">
+                {user?.isSystemAdmin ? 'System Admin' : user?.groups?.[0]?.role || 'User'}
+              </p>
             </div>
             <ChevronUp
               size={16}
@@ -145,7 +147,7 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto min-w-0">
+      <main className="flex-1 overflow-auto min-w-0 md:ml-64">
         {/* Mobile header */}
         <div className="md:hidden sticky top-0 z-30 p-4 border-b
           dark:bg-gray-900 dark:border-gray-700
@@ -158,8 +160,8 @@ export default function Layout() {
             >
               <Menu size={24} />
             </button>
-            <h1 className="text-lg font-bold flex items-center gap-2">
-              <span className="text-bitcoin">N</span>odefoundry
+            <h1 className="text-lg font-bold">
+              <span className="text-bitcoin">O</span>wnPrem
             </h1>
             <button
               onClick={toggleTheme}

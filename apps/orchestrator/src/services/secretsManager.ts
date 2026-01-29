@@ -39,7 +39,7 @@ export class SecretsManager {
       }
       // Derive a key from the configured secret using a static salt
       // Note: In a real production system, you might want to use a unique salt
-      this.key = scryptSync(secretsKey, 'nodefoundry-secrets-v1', 32);
+      this.key = scryptSync(secretsKey, 'ownprem-secrets-v1', 32);
     }
 
     this.initialized = true;

@@ -1,23 +1,23 @@
 [Unit]
-Description=Nodefoundry Orchestrator
-Documentation=https://github.com/nodefoundry/nodefoundry
+Description=Ownprem Orchestrator
+Documentation=https://github.com/ownprem/ownprem
 After=network.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=nodefoundry
-Group=nodefoundry
+User=ownprem
+Group=ownprem
 
 # Working directory
-WorkingDirectory=/opt/nodefoundry/repo
+WorkingDirectory=/opt/ownprem/repo
 
 # Environment
 Environment=NODE_ENV=production
-EnvironmentFile=/etc/nodefoundry/orchestrator.env
+EnvironmentFile=/etc/ownprem/orchestrator.env
 
 # Start command
-ExecStart=/usr/bin/node /opt/nodefoundry/repo/apps/orchestrator/dist/index.js
+ExecStart=/usr/bin/node /opt/ownprem/repo/apps/orchestrator/dist/index.js
 
 # Restart policy
 Restart=always
@@ -28,7 +28,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/nodefoundry /var/log/nodefoundry
+ReadWritePaths=/var/lib/ownprem /var/log/ownprem
 
 # Resource limits
 LimitNOFILE=65536
@@ -37,7 +37,7 @@ MemoryMax=1G
 # Logging
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=nodefoundry-orchestrator
+SyslogIdentifier=ownprem-orchestrator
 
 [Install]
 WantedBy=multi-user.target

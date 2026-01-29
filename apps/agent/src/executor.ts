@@ -1,13 +1,13 @@
 import { execSync, spawn, ChildProcess } from 'child_process';
 import { writeFileSync, mkdirSync, existsSync, chmodSync, realpathSync } from 'fs';
 import { dirname, resolve } from 'path';
-import type { CommandPayload, ConfigFile } from '@nodefoundry/shared';
+import type { CommandPayload, ConfigFile } from '@ownprem/shared';
 
 export class Executor {
   private runningProcesses: Map<string, ChildProcess> = new Map();
   private appsDir: string;
 
-  constructor(appsDir: string = '/opt/nodefoundry/apps') {
+  constructor(appsDir: string = '/opt/ownprem/apps') {
     // Ensure appsDir is absolute
     this.appsDir = resolve(appsDir);
     mkdirSync(this.appsDir, { recursive: true });

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import type { AgentCommand, AgentStatusReport } from '@nodefoundry/shared';
+import type { AgentCommand, AgentStatusReport } from '@ownprem/shared';
 
 export interface ConnectionOptions {
   serverId: string;

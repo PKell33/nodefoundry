@@ -1,11 +1,11 @@
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { execSync } from 'child_process';
-import type { ServerMetrics, AppStatus } from '@nodefoundry/shared';
+import type { ServerMetrics, AppStatus } from '@ownprem/shared';
 
 export class Reporter {
   constructor(
     private serverId: string,
-    private appsDir: string = '/opt/nodefoundry/apps'
+    private appsDir: string = '/opt/ownprem/apps'
   ) {}
 
   async getMetrics(): Promise<ServerMetrics> {

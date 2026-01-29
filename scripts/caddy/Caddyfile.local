@@ -1,4 +1,4 @@
-# Nodefoundry Local Development Caddyfile
+# Ownprem Local Development Caddyfile
 # Self-signed HTTPS for local testing
 #
 # Usage:
@@ -25,7 +25,7 @@ foundry.local {
 
 	# Serve static UI files (production build)
 	# For dev with Vite, comment this out and use the Vite dev server section below
-	root * /home/sysadmin/projects/nodefoundry/apps/ui/dist
+	root * /home/sysadmin/projects/ownprem/apps/ui/dist
 
 	# API proxy
 	handle /api/* {

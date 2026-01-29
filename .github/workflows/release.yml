@@ -41,12 +41,12 @@ jobs:
           cp package.json release/
           cp package-lock.json release/
           # Create archive
-          tar -czvf nodefoundry-${{ github.ref_name }}.tar.gz -C release .
+          tar -czvf ownprem-${{ github.ref_name }}.tar.gz -C release .
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          files: nodefoundry-${{ github.ref_name }}.tar.gz
+          files: ownprem-${{ github.ref_name }}.tar.gz
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

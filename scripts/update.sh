@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# Nodefoundry Update Script
+# Ownprem Update Script
 # Usage: sudo ./update.sh
 
-REPO_DIR="/opt/nodefoundry/repo"
-NODEFOUNDRY_USER="nodefoundry"
+REPO_DIR="/opt/ownprem/repo"
+OWNPREM_USER="ownprem"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -29,7 +29,7 @@ fi
 cd "$REPO_DIR"
 
 log_info "Checking for updates..."
-sudo -u "$NODEFOUNDRY_USER" git fetch
+sudo -u "$OWNPREM_USER" git fetch
 
 LOCAL=$(git rev-parse HEAD)
 REMOTE=$(git rev-parse @{u})
@@ -45,7 +45,7 @@ log_info "Latest:  $REMOTE"
 
 # Show changes
 log_info "Changes:"
-sudo -u "$NODEFOUNDRY_USER" git log --oneline HEAD..@{u}
+sudo -u "$OWNPREM_USER" git log --oneline HEAD..@{u}
 
 read -p "Apply updates? (yes/no): " confirm
 if [[ "$confirm" != "yes" ]]; then
@@ -55,40 +55,40 @@ fi
 
 # Stop services
 log_info "Stopping services..."
-systemctl stop nodefoundry-orchestrator 2>/dev/null || true
-systemctl stop nodefoundry-agent 2>/dev/null || true
+systemctl stop ownprem-orchestrator 2>/dev/null || true
+systemctl stop ownprem-agent 2>/dev/null || true
 
 # Pull updates
 log_info "Pulling updates..."
-sudo -u "$NODEFOUNDRY_USER" git pull
+sudo -u "$OWNPREM_USER" git pull
 
 # Install dependencies
 log_info "Installing dependencies..."
-sudo -u "$NODEFOUNDRY_USER" npm ci --omit=dev 2>/dev/null || sudo -u "$NODEFOUNDRY_USER" npm install --omit=dev
+sudo -u "$OWNPREM_USER" npm ci --omit=dev 2>/dev/null || sudo -u "$OWNPREM_USER" npm install --omit=dev
 
 # Build
 log_info "Building..."
-sudo -u "$NODEFOUNDRY_USER" npm run build
+sudo -u "$OWNPREM_USER" npm run build
 
 # Update systemd files if changed
-if [[ -f "$REPO_DIR/scripts/systemd/nodefoundry-orchestrator.service" ]]; then
-    cp "$REPO_DIR/scripts/systemd/nodefoundry-orchestrator.service" /etc/systemd/system/
+if [[ -f "$REPO_DIR/scripts/systemd/ownprem-orchestrator.service" ]]; then
+    cp "$REPO_DIR/scripts/systemd/ownprem-orchestrator.service" /etc/systemd/system/
 fi
-if [[ -f "$REPO_DIR/scripts/systemd/nodefoundry-agent.service" ]]; then
-    cp "$REPO_DIR/scripts/systemd/nodefoundry-agent.service" /etc/systemd/system/
+if [[ -f "$REPO_DIR/scripts/systemd/ownprem-agent.service" ]]; then
+    cp "$REPO_DIR/scripts/systemd/ownprem-agent.service" /etc/systemd/system/
 fi
 systemctl daemon-reload
 
 # Start services
 log_info "Starting services..."
-systemctl start nodefoundry-orchestrator 2>/dev/null || true
-systemctl start nodefoundry-agent 2>/dev/null || true
+systemctl start ownprem-orchestrator 2>/dev/null || true
+systemctl start ownprem-agent 2>/dev/null || true
 
 log_info "Update complete!"
 log_info "New version: $(git rev-parse --short HEAD)"
 
 # Check service status
 echo ""
-systemctl status nodefoundry-orchestrator --no-pager || true
+systemctl status ownprem-orchestrator --no-pager || true
 echo ""
-systemctl status nodefoundry-agent --no-pager || true
+systemctl status ownprem-agent --no-pager || true

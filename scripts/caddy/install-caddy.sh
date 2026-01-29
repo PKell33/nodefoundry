@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Caddy Installation Script for Nodefoundry
+# Caddy Installation Script for Ownprem
 # Usage: sudo ./install-caddy.sh <domain> [email]
 
 DOMAIN="${1:-}"
@@ -72,7 +72,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Generate Caddyfile from template
 log_info "Generating Caddyfile..."
 cat > /etc/caddy/Caddyfile << EOF
-# Nodefoundry Caddyfile
+# Ownprem Caddyfile
 # Generated on $(date)
 # Domain: $DOMAIN
 
@@ -92,7 +92,7 @@ $DOMAIN {
     }
 
     # Serve static UI files
-    root * /opt/nodefoundry/repo/apps/ui/dist
+    root * /opt/ownprem/repo/apps/ui/dist
 
     # API proxy
     handle /api/* {
@@ -140,7 +140,7 @@ $DOMAIN {
 
     # Logging
     log {
-        output file /var/log/caddy/nodefoundry-access.log {
+        output file /var/log/caddy/ownprem-access.log {
             roll_size 100mb
             roll_keep 5
             roll_keep_for 720h
@@ -163,7 +163,7 @@ if ! caddy validate --config /etc/caddy/Caddyfile; then
 fi
 
 # Update CORS origin in orchestrator config
-ORCHESTRATOR_ENV="/etc/nodefoundry/orchestrator.env"
+ORCHESTRATOR_ENV="/etc/ownprem/orchestrator.env"
 if [[ -f "$ORCHESTRATOR_ENV" ]]; then
     log_info "Updating CORS_ORIGIN in orchestrator config..."
     if grep -q "^CORS_ORIGIN=" "$ORCHESTRATOR_ENV"; then
@@ -200,7 +200,7 @@ echo ""
 echo "Ensure the following:"
 echo "  1. DNS A record for $DOMAIN points to this server"
 echo "  2. Ports 80 and 443 are open in firewall"
-echo "  3. Nodefoundry services are running on port 3001"
+echo "  3. Ownprem services are running on port 3001"
 echo ""
 echo "Commands:"
 echo "  sudo systemctl status caddy"

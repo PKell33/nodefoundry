@@ -65,8 +65,8 @@ export function useInstallApp() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ serverId, appName, config }: { serverId: string; appName: string; config?: Record<string, unknown> }) =>
-      api.installApp(serverId, appName, config),
+    mutationFn: ({ serverId, appName, config, groupId }: { serverId: string; appName: string; config?: Record<string, unknown>; groupId?: string }) =>
+      api.installApp(serverId, appName, config, groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deployments'] });
       queryClient.invalidateQueries({ queryKey: ['services'] });

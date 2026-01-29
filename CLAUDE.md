@@ -1,4 +1,4 @@
-# Nodefoundry
+# Ownprem
 
 Sovereign Bitcoin infrastructure platform.
 
@@ -59,8 +59,8 @@ User → https://foundry.local
 ## Project Structure
 
 ```
-nodefoundry/
-├── packages/shared/        # Types (@nodefoundry/shared)
+ownprem/
+├── packages/shared/        # Types (@ownprem/shared)
 ├── apps/
 │   ├── orchestrator/       # API, WebSocket, DB, secrets, proxy
 │   ├── agent/              # Executor, reporter
@@ -94,7 +94,7 @@ npm run dev:ui            # Terminal 3 - Vite on :5173
 ### Local Data
 
 ```
-./data/nodefoundry.sqlite    # Database
+./data/ownprem.sqlite    # Database
 ./data/apps/                 # Installed apps (dev)
 ./logs/                      # Log files
 ```
@@ -139,10 +139,10 @@ When platform works locally, test multi-node on Debian:
 
 ```bash
 # Deploy to foundry
-ssh foundry "cd /opt/nodefoundry/repo && git pull && npm run build"
+ssh foundry "cd /opt/ownprem/repo && git pull && npm run build"
 
 # Deploy to server-1  
-ssh server-1 "cd /opt/nodefoundry/repo && git pull && npm run build:agent"
+ssh server-1 "cd /opt/ownprem/repo && git pull && npm run build:agent"
 ```
 
 ## Key Principles
@@ -157,7 +157,7 @@ ssh server-1 "cd /opt/nodefoundry/repo && git pull && npm run build:agent"
 
 ## Database
 
-SQLite: `/var/lib/nodefoundry/db.sqlite`
+SQLite: `/var/lib/ownprem/db.sqlite`
 
 Tables: `servers`, `app_registry`, `deployments`, `secrets`, `services`, `proxy_routes`
 
@@ -280,7 +280,7 @@ configSchema:
 ```bash
 # install.sh
 #!/bin/bash
-cat > /opt/nodefoundry/apps/mock-app/server.js << 'EOF'
+cat > /opt/ownprem/apps/mock-app/server.js << 'EOF'
 const http = require('http');
 const msg = process.env.MESSAGE || 'Mock App Running';
 http.createServer((req, res) => {
@@ -289,7 +289,7 @@ http.createServer((req, res) => {
 }).listen(9999, () => console.log('Mock app on :9999'));
 EOF
 
-node /opt/nodefoundry/apps/mock-app/server.js &
+node /opt/ownprem/apps/mock-app/server.js &
 ```
 
 ## Testing
@@ -326,10 +326,10 @@ npm run dev:orchestrator 2>&1 | tee orchestrator.log
 npm run dev:agent 2>&1 | tee agent.log
 
 # Check database
-sqlite3 ./data/nodefoundry.sqlite ".tables"
-sqlite3 ./data/nodefoundry.sqlite "SELECT * FROM servers;"
+sqlite3 ./data/ownprem.sqlite ".tables"
+sqlite3 ./data/ownprem.sqlite "SELECT * FROM servers;"
 
 # Reset database
-rm ./data/nodefoundry.sqlite
+rm ./data/ownprem.sqlite
 npm run dev:orchestrator  # Recreates schema
 ```

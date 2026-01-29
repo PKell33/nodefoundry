@@ -1,5 +1,5 @@
 {
-  "name": "@nodefoundry/orchestrator",
+  "name": "@ownprem/orchestrator",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -15,7 +15,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@nodefoundry/shared": "*",
+    "@ownprem/shared": "*",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^9.4.3",
     "cors": "^2.8.5",

@@ -80,32 +80,34 @@ export function optionalAuth(
 }
 
 /**
- * Require specific role
+ * Require system admin
  */
-export function requireRole(...roles: string[]) {
-  return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-    if (!req.user) {
-      res.status(401).json({
-        error: {
-          code: 'UNAUTHORIZED',
-          message: 'Authentication required',
-        },
-      });
-      return;
-    }
+export function requireSystemAdmin(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): void {
+  if (!req.user) {
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Authentication required',
+      },
+    });
+    return;
+  }
 
-    if (!roles.includes(req.user.role)) {
-      res.status(403).json({
-        error: {
-          code: 'FORBIDDEN',
-          message: 'Insufficient permissions',
-        },
-      });
-      return;
-    }
+  if (!req.user.isSystemAdmin) {
+    res.status(403).json({
+      error: {
+        code: 'FORBIDDEN',
+        message: 'System admin access required',
+      },
+    });
+    return;
+  }
 
-    next();
-  };
+  next();
 }
 
 /**
@@ -153,7 +155,7 @@ export function devBypassAuth(
       req.user = {
         userId: 'dev-user',
         username: 'developer',
-        role: 'admin',
+        isSystemAdmin: true,
       };
     }
 

@@ -178,6 +178,13 @@ export const api = {
     return fetchWithAuth<void>(`${API_BASE}/servers/${id}`, { method: 'DELETE' });
   },
 
+  async regenerateServerToken(id: string) {
+    return fetchWithAuth<{ server: Server; bootstrapCommand: string }>(
+      `${API_BASE}/servers/${id}/regenerate-token`,
+      { method: 'POST' }
+    );
+  },
+
   // Apps
   async getApps() {
     return fetchWithAuth<AppManifest[]>(`${API_BASE}/apps`);
@@ -204,10 +211,16 @@ export const api = {
     });
   },
 
-  async installApp(serverId: string, appName: string, config?: Record<string, unknown>) {
+  async installApp(
+    serverId: string,
+    appName: string,
+    config?: Record<string, unknown>,
+    groupId?: string,
+    serviceBindings?: Record<string, string>
+  ) {
     return fetchWithAuth<Deployment>(`${API_BASE}/deployments`, {
       method: 'POST',
-      body: JSON.stringify({ serverId, appName, config }),
+      body: JSON.stringify({ serverId, appName, config, groupId, serviceBindings }),
     });
   },
 
@@ -232,6 +245,10 @@ export const api = {
 
   async uninstallDeployment(id: string) {
     return fetchWithAuth<void>(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
+  },
+
+  async getConnectionInfo(deploymentId: string) {
+    return fetchWithAuth<ConnectionInfo>(`${API_BASE}/deployments/${deploymentId}/connection-info`);
   },
 
   // Services
@@ -313,13 +330,88 @@ export const api = {
       method: 'POST',
     });
   },
+
+  // Admin: Reset user's 2FA
+  async resetUserTotp(userId: string) {
+    return fetchWithAuth<{ success: boolean; message: string }>(`${API_BASE}/auth/users/${userId}/totp/reset`, {
+      method: 'POST',
+    });
+  },
+
+  // Admin: Set system admin status
+  async setSystemAdmin(userId: string, isSystemAdmin: boolean) {
+    return fetchWithAuth<{ success: boolean }>(`${API_BASE}/auth/users/${userId}/system-admin`, {
+      method: 'PUT',
+      body: JSON.stringify({ isSystemAdmin }),
+    });
+  },
+
+  // Groups
+  async getGroups() {
+    return fetchWithAuth<Group[]>(`${API_BASE}/auth/groups`);
+  },
+
+  async getGroup(groupId: string) {
+    return fetchWithAuth<GroupWithMembers>(`${API_BASE}/auth/groups/${groupId}`);
+  },
+
+  async createGroup(name: string, description?: string, totpRequired?: boolean) {
+    return fetchWithAuth<Group>(`${API_BASE}/auth/groups`, {
+      method: 'POST',
+      body: JSON.stringify({ name, description, totpRequired }),
+    });
+  },
+
+  async updateGroup(groupId: string, updates: { name?: string; description?: string; totpRequired?: boolean }) {
+    return fetchWithAuth<Group>(`${API_BASE}/auth/groups/${groupId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async deleteGroup(groupId: string) {
+    return fetchWithAuth<void>(`${API_BASE}/auth/groups/${groupId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Group membership
+  async addUserToGroup(groupId: string, userId: string, role: 'admin' | 'operator' | 'viewer') {
+    return fetchWithAuth<{ success: boolean }>(`${API_BASE}/auth/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ userId, role }),
+    });
+  },
+
+  async updateUserGroupRole(groupId: string, userId: string, role: 'admin' | 'operator' | 'viewer') {
+    return fetchWithAuth<{ success: boolean }>(`${API_BASE}/auth/groups/${groupId}/members/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  async removeUserFromGroup(groupId: string, userId: string) {
+    return fetchWithAuth<void>(`${API_BASE}/auth/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  },
 };
 
 // Types
+export interface UserGroupMembership {
+  groupId: string;
+  groupName: string;
+  role: 'admin' | 'operator' | 'viewer';
+  totpRequired: boolean;
+}
+
 export interface User {
   userId: string;
   username: string;
-  role: string;
+  isSystemAdmin: boolean;
+  groups: UserGroupMembership[];
+  totpEnabled?: boolean;
+  totpRequired?: boolean;
 }
 
 export interface AuthResponse {
@@ -327,21 +419,42 @@ export interface AuthResponse {
   refreshToken: string;
   expiresIn: number;
   user: User;
+  totpSetupRequired?: boolean;
 }
 
 export interface UserInfo {
   id: string;
   username: string;
-  role: string;
+  is_system_admin: boolean;
+  totp_enabled: boolean;
   created_at: string;
   last_login_at: string | null;
+  groups: UserGroupMembership[];
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  description: string | null;
+  totp_required: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GroupWithMembers extends Group {
+  members: Array<{
+    userId: string;
+    username: string;
+    role: 'admin' | 'operator' | 'viewer';
+    isSystemAdmin: boolean;
+  }>;
 }
 
 export interface Server {
   id: string;
   name: string;
   host: string | null;
-  isFoundry: boolean;
+  isCore: boolean;
   agentStatus: 'online' | 'offline' | 'error';
   metrics?: ServerMetrics;
   lastSeen: string | null;
@@ -357,16 +470,31 @@ export interface ServerMetrics {
   loadAverage: [number, number, number];
 }
 
+export interface AppSource {
+  type: 'binary' | 'git' | 'apt';
+  githubRepo?: string;
+  downloadUrl?: string;
+  checksumUrl?: string;
+  gitUrl?: string;
+  tagPrefix?: string;
+}
+
 export interface AppManifest {
   name: string;
   displayName: string;
   description: string;
   version: string;
   category: string;
+  source: AppSource;
+  conflicts?: string[];
   webui?: { enabled: boolean; port: number; basePath: string };
   configSchema: ConfigField[];
   requires?: ServiceRequirement[];
   provides?: ServiceDefinition[];
+  resources?: {
+    minMemory?: string;
+    minDisk?: string;
+  };
 }
 
 export interface ConfigField {
@@ -398,6 +526,7 @@ export interface Deployment {
   id: string;
   serverId: string;
   appName: string;
+  groupId?: string;
   version: string;
   config: Record<string, unknown>;
   status: string;
@@ -478,4 +607,27 @@ export interface TotpSetupResponse {
 export interface LoginResponse extends AuthResponse {
   totpRequired?: boolean;
   message?: string;
+}
+
+export interface ServiceConnectionInfo {
+  serviceName: string;
+  protocol: string;
+  // Proxied connection (through Caddy - recommended)
+  host: string;
+  port?: number;
+  path?: string;
+  // Direct connection (internal only)
+  directHost: string;
+  directPort: number;
+  // Tor connection
+  torAddress?: string;
+  credentials?: Record<string, string>;
+}
+
+export interface ConnectionInfo {
+  appName: string;
+  displayName: string;
+  serverId: string;
+  status: string;
+  services: ServiceConnectionInfo[];
 }

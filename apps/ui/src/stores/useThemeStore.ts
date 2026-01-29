@@ -24,7 +24,7 @@ export const useThemeStore = create<ThemeState>()(
       },
     }),
     {
-      name: 'nodefoundry-theme',
+      name: 'ownprem-theme',
       onRehydrateStorage: () => (state) => {
         if (state) {
           applyTheme(state.theme);
@@ -47,7 +47,7 @@ function applyTheme(theme: Theme) {
 
 // Initialize theme on load
 if (typeof window !== 'undefined') {
-  const stored = localStorage.getItem('nodefoundry-theme');
+  const stored = localStorage.getItem('ownprem-theme');
   if (stored) {
     try {
       const { state } = JSON.parse(stored);

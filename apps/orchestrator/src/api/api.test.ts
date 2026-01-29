@@ -77,7 +77,7 @@ describe('API Endpoints', () => {
     app = createApi();
 
     // Create test user and get token
-    await authService.createUser('testadmin', 'testpassword', 'admin');
+    await authService.createUser('testadmin', 'testpassword', true);
     const user = await authService.validateCredentials('testadmin', 'testpassword');
     const tokens = authService.generateTokens(user!);
     authToken = tokens.accessToken;
@@ -114,7 +114,7 @@ describe('API Endpoints', () => {
 
     it('POST /api/auth/login should authenticate valid credentials', async () => {
       // Create a test user first
-      await authService.createUser('logintest', 'password123', 'admin');
+      await authService.createUser('logintest', 'password123', true);
 
       const res = await request(app)
         .post('/api/auth/login')

@@ -1,4 +1,4 @@
-# Nodefoundry - Build Prompt
+# Ownprem - Build Prompt
 
 Sovereign Bitcoin infrastructure platform. Single control plane (foundry) manages app servers running Bitcoin services. Web GUI with unified access to all apps.
 
@@ -6,7 +6,7 @@ Sovereign Bitcoin infrastructure platform. Single control plane (foundry) manage
 
 | Concept | Name | Examples |
 |---------|------|----------|
-| Project | **nodefoundry** | |
+| Project | **ownprem** | |
 | Orchestrator | **foundry** | Always one |
 | App Server | **server** | `foundry`, `server-1`, `server-2` |
 | App | **app** | `bitcoin`, `electrs`, `mempool` |
@@ -165,7 +165,7 @@ Shared:
 ## Project Structure
 
 ```
-github.com/yourname/nodefoundry/
+github.com/yourname/ownprem/
 ├── package.json                    # Monorepo root
 ├── tsconfig.base.json
 ├── CLAUDE.md                       # Claude Code instructions
@@ -657,7 +657,7 @@ export class ProxyManager {
 :3000 {
   # Foundry UI
   handle / {
-    root * /opt/nodefoundry/ui/dist
+    root * /opt/ownprem/ui/dist
     file_server
     try_files {path} /index.html
   }
@@ -713,7 +713,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
 // apps/agent/src/index.ts
 
 import { io, Socket } from 'socket.io-client';
-import { AgentCommand, AgentStatusReport } from '@nodefoundry/shared';
+import { AgentCommand, AgentStatusReport } from '@ownprem/shared';
 import { Executor } from './executor';
 import { Reporter } from './reporter';
 
@@ -826,10 +826,10 @@ agent.start();
 import { execSync } from 'child_process';
 import { writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
-import { CommandPayload, ConfigFile } from '@nodefoundry/shared';
+import { CommandPayload, ConfigFile } from '@ownprem/shared';
 
 export class Executor {
-  private appsDir = '/opt/nodefoundry/apps';
+  private appsDir = '/opt/ownprem/apps';
   
   async install(appName: string, payload: CommandPayload) {
     const appDir = `${this.appsDir}/${appName}`;
@@ -1169,7 +1169,7 @@ resources:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Nodefoundry                                       admin ▼    ⚙️    │
+│  Ownprem                                       admin ▼    ⚙️    │
 ├────────────┬────────────────────────────────────────────────────────┤
 │            │                                                        │
 │  Dashboard │  SERVERS                                               │
@@ -1242,7 +1242,7 @@ resources:
 
 set -e
 
-echo "Installing Nodefoundry..."
+echo "Installing Ownprem..."
 
 # Install Node.js
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -1256,13 +1256,13 @@ apt-get update
 apt-get install -y caddy
 
 # Create directories
-mkdir -p /opt/nodefoundry/{orchestrator,agent,ui,apps}
-mkdir -p /var/lib/nodefoundry
-mkdir -p /etc/nodefoundry
+mkdir -p /opt/ownprem/{orchestrator,agent,ui,apps}
+mkdir -p /var/lib/ownprem
+mkdir -p /etc/ownprem
 
 # Clone/pull repo
-cd /opt/nodefoundry
-git clone https://github.com/yourname/nodefoundry.git repo || (cd repo && git pull)
+cd /opt/ownprem
+git clone https://github.com/yourname/ownprem.git repo || (cd repo && git pull)
 
 # Build
 cd repo
@@ -1270,36 +1270,36 @@ npm install
 npm run build
 
 # Copy built files
-cp -r apps/orchestrator/dist/* /opt/nodefoundry/orchestrator/
-cp -r apps/agent/dist/* /opt/nodefoundry/agent/
-cp -r apps/ui/dist/* /opt/nodefoundry/ui/
+cp -r apps/orchestrator/dist/* /opt/ownprem/orchestrator/
+cp -r apps/agent/dist/* /opt/ownprem/agent/
+cp -r apps/ui/dist/* /opt/ownprem/ui/
 
 # Generate secrets key
 SECRETS_KEY=$(openssl rand -hex 32)
 
 # Config
-cat > /etc/nodefoundry/foundry.env << EOF
+cat > /etc/ownprem/foundry.env << EOF
 NODE_ENV=production
 PORT=3001
-DATABASE_PATH=/var/lib/nodefoundry/db.sqlite
+DATABASE_PATH=/var/lib/ownprem/db.sqlite
 SECRETS_KEY=${SECRETS_KEY}
 EOF
 
-cat > /etc/nodefoundry/agent.env << EOF
+cat > /etc/ownprem/agent.env << EOF
 SERVER_ID=foundry
 FOUNDRY_URL=http://localhost:3001
 EOF
 
 # Systemd services
-cat > /etc/systemd/system/nodefoundry-orchestrator.service << 'EOF'
+cat > /etc/systemd/system/ownprem-orchestrator.service << 'EOF'
 [Unit]
-Description=Nodefoundry Orchestrator
+Description=Ownprem Orchestrator
 After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/nodefoundry/foundry.env
-WorkingDirectory=/opt/nodefoundry/orchestrator
+EnvironmentFile=/etc/ownprem/foundry.env
+WorkingDirectory=/opt/ownprem/orchestrator
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=10
@@ -1308,15 +1308,15 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-cat > /etc/systemd/system/nodefoundry-agent.service << 'EOF'
+cat > /etc/systemd/system/ownprem-agent.service << 'EOF'
 [Unit]
-Description=Nodefoundry Agent
-After=network.target nodefoundry-orchestrator.service
+Description=Ownprem Agent
+After=network.target ownprem-orchestrator.service
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/nodefoundry/agent.env
-WorkingDirectory=/opt/nodefoundry/agent
+EnvironmentFile=/etc/ownprem/agent.env
+WorkingDirectory=/opt/ownprem/agent
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=10
@@ -1326,12 +1326,12 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable nodefoundry-orchestrator nodefoundry-agent caddy
-systemctl start nodefoundry-orchestrator nodefoundry-agent caddy
+systemctl enable ownprem-orchestrator ownprem-agent caddy
+systemctl start ownprem-orchestrator ownprem-agent caddy
 
 IP=$(hostname -I | awk '{print $1}')
 echo ""
-echo "Nodefoundry installed!"
+echo "Ownprem installed!"
 echo "Access at: http://${IP}:3000"
 ```
 
@@ -1364,38 +1364,38 @@ fi
 
 SERVER_ID="${SERVER_ID:-server-$(hostname -s)}"
 
-echo "Installing Nodefoundry Agent..."
+echo "Installing Ownprem Agent..."
 
 # Install Node.js
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 
 # Create directories
-mkdir -p /opt/nodefoundry/{agent,apps}
-mkdir -p /etc/nodefoundry
+mkdir -p /opt/ownprem/{agent,apps}
+mkdir -p /etc/ownprem
 
 # Download agent from foundry
-curl -sSL "${FOUNDRY_URL}/agent/bundle.tar.gz" | tar -xz -C /opt/nodefoundry/agent
+curl -sSL "${FOUNDRY_URL}/agent/bundle.tar.gz" | tar -xz -C /opt/ownprem/agent
 
 # Config
-cat > /etc/nodefoundry/agent.env << EOF
+cat > /etc/ownprem/agent.env << EOF
 SERVER_ID=${SERVER_ID}
 FOUNDRY_URL=${FOUNDRY_URL}
 AUTH_TOKEN=${AUTH_TOKEN}
 EOF
 
-chmod 600 /etc/nodefoundry/agent.env
+chmod 600 /etc/ownprem/agent.env
 
 # Systemd service
-cat > /etc/systemd/system/nodefoundry-agent.service << 'EOF'
+cat > /etc/systemd/system/ownprem-agent.service << 'EOF'
 [Unit]
-Description=Nodefoundry Agent
+Description=Ownprem Agent
 After=network.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/nodefoundry/agent.env
-WorkingDirectory=/opt/nodefoundry/agent
+EnvironmentFile=/etc/ownprem/agent.env
+WorkingDirectory=/opt/ownprem/agent
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=10
@@ -1405,8 +1405,8 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable nodefoundry-agent
-systemctl start nodefoundry-agent
+systemctl enable ownprem-agent
+systemctl start ownprem-agent
 
 echo ""
 echo "Agent installed and connected to foundry as: ${SERVER_ID}"
@@ -1415,7 +1415,7 @@ echo "Agent installed and connected to foundry as: ${SERVER_ID}"
 ## CLAUDE.md
 
 ```markdown
-# Nodefoundry - Development Guide
+# Ownprem - Development Guide
 
 ## Overview
 Sovereign Bitcoin infrastructure platform. Foundry (orchestrator) manages 
@@ -1451,7 +1451,7 @@ npm run typecheck        # TypeScript check
 - server-1: 10.100.6.61 (agent only)
 
 ## Database
-SQLite at /var/lib/nodefoundry/db.sqlite
+SQLite at /var/lib/ownprem/db.sqlite
 Schema in apps/orchestrator/src/db/schema.sql
 
 ## Key Flows
@@ -1608,7 +1608,7 @@ configSchema:
 #!/bin/bash
 set -e
 
-APP_DIR="/opt/nodefoundry/apps/mock-app"
+APP_DIR="/opt/ownprem/apps/mock-app"
 mkdir -p "$APP_DIR"
 
 cat > "$APP_DIR/server.js" << 'EOF'
@@ -1666,7 +1666,7 @@ systemctl restart mock-app
 systemctl stop mock-app || true
 systemctl disable mock-app || true
 rm -f /etc/systemd/system/mock-app.service
-rm -rf /opt/nodefoundry/apps/mock-app
+rm -rf /opt/ownprem/apps/mock-app
 systemctl daemon-reload
 ```
 

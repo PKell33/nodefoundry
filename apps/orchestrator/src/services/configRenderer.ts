@@ -2,7 +2,7 @@ import nunjucks from 'nunjucks';
 import { readFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { config } from '../config.js';
-import type { AppManifest, ConfigFile } from '@nodefoundry/shared';
+import type { AppManifest, ConfigFile } from '@ownprem/shared';
 
 export class ConfigRenderer {
   private env: nunjucks.Environment;
@@ -74,7 +74,7 @@ export class ConfigRenderer {
       },
       mempool: {
         template: 'mempool-config.json.njk',
-        output: '/opt/nodefoundry/apps/mempool/backend/mempool-config.json',
+        output: '/opt/ownprem/apps/mempool/backend/mempool-config.json',
         mode: '0644',
       },
       lnd: {
@@ -178,6 +178,42 @@ export class ConfigRenderer {
 
     return {
       path: `${appDir}/uninstall.sh`,
+      content: script,
+      mode: '0755',
+    };
+  }
+
+  renderStartScript(manifest: AppManifest): ConfigFile | null {
+    const appDefPath = join(config.paths.appDefinitions, manifest.name);
+    const scriptPath = join(appDefPath, 'start.sh');
+
+    if (!existsSync(scriptPath)) {
+      return null;
+    }
+
+    const script = readFileSync(scriptPath, 'utf-8');
+    const appDir = `${config.paths.apps}/${manifest.name}`;
+
+    return {
+      path: `${appDir}/start.sh`,
+      content: script,
+      mode: '0755',
+    };
+  }
+
+  renderStopScript(manifest: AppManifest): ConfigFile | null {
+    const appDefPath = join(config.paths.appDefinitions, manifest.name);
+    const scriptPath = join(appDefPath, 'stop.sh');
+
+    if (!existsSync(scriptPath)) {
+      return null;
+    }
+
+    const script = readFileSync(scriptPath, 'utf-8');
+    const appDir = `${config.paths.apps}/${manifest.name}`;
+
+    return {
+      path: `${appDir}/stop.sh`,
       content: script,
       mode: '0755',
     };
