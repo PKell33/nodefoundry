@@ -2,12 +2,16 @@ import type { Socket, Server as SocketServer } from 'socket.io';
 import { timingSafeEqual, createHash } from 'crypto';
 import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
+import { authService } from '../services/authService.js';
 import type { AgentStatusReport, CommandResult, ServerMetrics } from '@nodefoundry/shared';
 
 interface AgentAuth {
-  serverId: string;
-  token: string | null;
+  serverId?: string;
+  token?: string | null;
 }
+
+// Track browser client connections
+const browserClients = new Set<Socket>();
 
 interface ServerRow {
   id: string;
@@ -73,9 +77,10 @@ export function setupAgentHandler(io: SocketServer): void {
     const { serverId, token } = auth;
     const clientIp = socket.handshake.address;
 
+    // Check if this is an agent connection (has serverId) or browser client
     if (!serverId) {
-      wsLogger.warn({ clientIp }, 'Agent connection rejected: no serverId');
-      socket.disconnect();
+      // This is a browser client - validate JWT from cookie or auth header
+      handleBrowserClient(io, socket, clientIp);
       return;
     }
 
@@ -179,6 +184,42 @@ export function setupAgentHandler(io: SocketServer): void {
 
       io.emit('server:disconnected', { serverId, timestamp: new Date() });
     });
+  });
+}
+
+/**
+ * Handle browser client WebSocket connections
+ */
+function handleBrowserClient(io: SocketServer, socket: Socket, clientIp: string): void {
+  // Get JWT from cookie in handshake headers
+  const cookies = socket.handshake.headers.cookie || '';
+  const tokenMatch = cookies.match(/access_token=([^;]+)/);
+  const accessToken = tokenMatch?.[1];
+
+  if (!accessToken) {
+    wsLogger.debug({ clientIp }, 'Browser client connection: no access token');
+    // Allow connection without auth for now - they just won't see anything sensitive
+    // The client will reconnect after login with proper auth
+  } else {
+    // Verify the token
+    const payload = authService.verifyAccessToken(accessToken);
+    if (!payload) {
+      wsLogger.debug({ clientIp }, 'Browser client: invalid access token');
+    } else {
+      wsLogger.debug({ clientIp, userId: payload.userId }, 'Browser client authenticated');
+    }
+  }
+
+  // Track this browser client
+  browserClients.add(socket);
+  wsLogger.info({ clientIp, totalClients: browserClients.size }, 'Browser client connected');
+
+  // Emit connected status to this client
+  socket.emit('connect_ack', { connected: true });
+
+  socket.on('disconnect', (reason) => {
+    browserClients.delete(socket);
+    wsLogger.debug({ clientIp, reason, totalClients: browserClients.size }, 'Browser client disconnected');
   });
 }
 

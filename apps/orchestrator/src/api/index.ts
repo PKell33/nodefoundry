@@ -11,6 +11,7 @@ import servicesRouter from './routes/services.js';
 import systemRouter from './routes/system.js';
 import proxyRouter from './routes/proxy.js';
 import auditRouter from './routes/audit.js';
+import agentRouter from './routes/agent.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { devBypassAuth, AuthenticatedRequest } from './middleware/auth.js';
 import { config } from '../config.js';
@@ -133,6 +134,9 @@ export function createApi(): express.Application {
 
   // Auth routes (some unauthenticated)
   app.use('/api/auth', authRouter);
+
+  // Agent install script (unauthenticated for remote server bootstrap)
+  app.use('/agent', agentRouter);
 
   // Proxy routes (unauthenticated for local Caddy integration)
   app.use('/api/proxy-routes', proxyRouter);

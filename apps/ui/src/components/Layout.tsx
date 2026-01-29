@@ -50,8 +50,8 @@ export default function Layout() {
       {/* Sidebar */}
       <aside
         className={`
-          fixed md:static inset-y-0 left-0 z-50
-          w-64 sidebar flex flex-col
+          fixed inset-y-0 left-0 z-50
+          w-64 h-screen sidebar flex flex-col
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
@@ -69,7 +69,7 @@ export default function Layout() {
           </button>
         </div>
 
-        <nav className="p-4 space-y-2 flex-1">
+        <nav className="p-4 space-y-2 flex-1 overflow-y-auto">
           <NavItem to="/" icon={<LayoutDashboard size={20} />} label="Dashboard" />
           <NavItem to="/servers" icon={<Server size={20} />} label="Servers" />
           <NavItem to="/apps" icon={<Package size={20} />} label="Apps" />
@@ -147,7 +147,7 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 overflow-auto min-w-0">
+      <main className="flex-1 overflow-auto min-w-0 md:ml-64">
         {/* Mobile header */}
         <div className="md:hidden sticky top-0 z-30 p-4 border-b
           dark:bg-gray-900 dark:border-gray-700

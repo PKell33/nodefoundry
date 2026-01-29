@@ -1,4 +1,5 @@
-import { Server, Cpu, HardDrive, MemoryStick } from 'lucide-react';
+import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical } from 'lucide-react';
+import { useState } from 'react';
 import type { Server as ServerType } from '../api/client';
 import StatusBadge from './StatusBadge';
 
@@ -6,10 +7,25 @@ interface ServerCardProps {
   server: ServerType;
   deploymentCount?: number;
   onClick?: () => void;
+  onDelete?: () => void;
+  canManage?: boolean;
 }
 
-export default function ServerCard({ server, deploymentCount = 0, onClick }: ServerCardProps) {
+export default function ServerCard({ server, deploymentCount = 0, onClick, onDelete, canManage = false }: ServerCardProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const metrics = server.metrics;
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (confirmDelete) {
+      onDelete?.();
+      setConfirmDelete(false);
+      setShowMenu(false);
+    } else {
+      setConfirmDelete(true);
+    }
+  };
 
   return (
     <div
@@ -30,7 +46,47 @@ export default function ServerCard({ server, deploymentCount = 0, onClick }: Ser
             </p>
           </div>
         </div>
-        <StatusBadge status={server.agentStatus} />
+        <div className="flex items-center gap-2">
+          <StatusBadge status={server.agentStatus} />
+          {canManage && !server.isFoundry && (
+            <div className="relative">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                  setConfirmDelete(false);
+                }}
+                className="p-1 rounded hover:bg-gray-700 dark:hover:bg-gray-700 light:hover:bg-gray-200 transition-colors"
+              >
+                <MoreVertical size={16} />
+              </button>
+              {showMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      setConfirmDelete(false);
+                    }}
+                  />
+                  <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[140px]
+                    dark:bg-gray-800 dark:border dark:border-gray-700
+                    light:bg-white light:border light:border-gray-200">
+                    <button
+                      onClick={handleDelete}
+                      className="w-full px-3 py-2 text-left text-sm flex items-center gap-2 transition-colors
+                        text-red-500 hover:bg-red-500/10"
+                    >
+                      <Trash2 size={14} />
+                      {confirmDelete ? 'Confirm Delete' : 'Delete Server'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {metrics && server.agentStatus === 'online' && (
