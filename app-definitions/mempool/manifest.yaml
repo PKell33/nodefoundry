@@ -1,0 +1,93 @@
+name: mempool
+displayName: Mempool Explorer
+description: Bitcoin blockchain explorer and mempool visualizer
+version: 3.0.0
+category: explorer
+
+source:
+  type: git
+  githubRepo: mempool/mempool
+  gitUrl: https://github.com/mempool/mempool.git
+  tagPrefix: v
+
+requires:
+  - service: bitcoin-rpc
+    locality: any-server
+    injectAs:
+      host: CORE_RPC_HOST
+      port: CORE_RPC_PORT
+      credentials:
+        rpcuser: CORE_RPC_USERNAME
+        rpcpassword: CORE_RPC_PASSWORD
+  - service: electrs-rpc
+    locality: any-server
+    optional: true
+    injectAs:
+      host: ELECTRUM_HOST
+      port: ELECTRUM_PORT
+
+provides:
+  - name: mempool-api
+    port: 8999
+    protocol: http
+  - name: mempool-web
+    port: 3006
+    protocol: http
+
+webui:
+  enabled: true
+  port: 3006
+  basePath: /apps/mempool
+
+tor:
+  - name: mempool
+    virtualPort: 443
+    targetPort: 3006
+
+configSchema:
+  - name: network
+    type: string
+    label: Network
+    inheritFrom: bitcoin.network
+  - name: CORE_RPC_HOST
+    type: string
+    label: Bitcoin RPC Host
+    default: "127.0.0.1"
+  - name: CORE_RPC_PORT
+    type: number
+    label: Bitcoin RPC Port
+    default: 8332
+  - name: CORE_RPC_USERNAME
+    type: string
+    label: Bitcoin RPC User
+    secret: true
+  - name: CORE_RPC_PASSWORD
+    type: password
+    label: Bitcoin RPC Password
+    secret: true
+  - name: ELECTRUM_HOST
+    type: string
+    label: Electrum Host
+    default: "127.0.0.1"
+  - name: ELECTRUM_PORT
+    type: number
+    label: Electrum Port
+    default: 50001
+  - name: MYSQL_DATABASE
+    type: string
+    label: Database Name
+    default: mempool
+  - name: MYSQL_USER
+    type: string
+    label: Database User
+    generated: true
+    secret: true
+  - name: MYSQL_PASSWORD
+    type: password
+    label: Database Password
+    generated: true
+    secret: true
+
+resources:
+  minDisk: 20GB
+  minMemory: 4GB

@@ -1,0 +1,78 @@
+name: bitcoin
+displayName: Bitcoin Core
+description: Full Bitcoin node - the backbone of the Bitcoin network
+version: 28.0
+category: bitcoin
+
+source:
+  type: binary
+  githubRepo: bitcoin/bitcoin
+  downloadUrl: "https://bitcoincore.org/bin/bitcoin-core-${version}/bitcoin-${version}-x86_64-linux-gnu.tar.gz"
+  checksumUrl: "https://bitcoincore.org/bin/bitcoin-core-${version}/SHA256SUMS"
+
+provides:
+  - name: bitcoin-rpc
+    port: 8332
+    protocol: http
+    credentials:
+      type: rpc
+      fields: [rpcuser, rpcpassword]
+  - name: bitcoin-p2p
+    port: 8333
+    protocol: tcp
+  - name: bitcoin-zmq-block
+    port: 28332
+    protocol: zmq
+  - name: bitcoin-zmq-tx
+    port: 28333
+    protocol: zmq
+
+tor:
+  - name: bitcoin-p2p
+    virtualPort: 8333
+    targetPort: 8333
+  - name: bitcoin-rpc
+    virtualPort: 8332
+    targetPort: 8332
+
+configSchema:
+  - name: network
+    type: select
+    label: Network
+    description: Bitcoin network to connect to
+    options: [mainnet, testnet, signet, regtest]
+    default: mainnet
+  - name: txindex
+    type: boolean
+    label: Transaction Index
+    description: Enable full transaction index (required for Electrs)
+    default: true
+  - name: prune
+    type: number
+    label: Prune (MB)
+    description: "Reduce disk usage by pruning old blocks. 0 = no pruning (full node)"
+    default: 0
+  - name: dbcache
+    type: number
+    label: DB Cache (MB)
+    description: Database cache size in MB (higher = faster sync)
+    default: 450
+  - name: maxconnections
+    type: number
+    label: Max Connections
+    description: Maximum number of peer connections
+    default: 125
+  - name: rpcuser
+    type: string
+    label: RPC Username
+    generated: true
+    secret: true
+  - name: rpcpassword
+    type: password
+    label: RPC Password
+    generated: true
+    secret: true
+
+resources:
+  minDisk: 700GB
+  minMemory: 2GB
