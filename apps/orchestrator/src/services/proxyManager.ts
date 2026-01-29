@@ -2,6 +2,8 @@ import { getDb } from '../db/index.js';
 import { v4 as uuidv4 } from 'uuid';
 import type { AppManifest, ServiceDefinition } from '@ownprem/shared';
 import { config } from '../config.js';
+import { withRetry, isNetworkError, isRetryableStatus } from '../lib/retry.js';
+import logger from '../lib/logger.js';
 
 interface ProxyRoute {
   id: string;
@@ -307,22 +309,49 @@ export class ProxyManager {
     const caddyConfig = this.generateCaddyJsonConfig(routes, serviceRoutes);
 
     try {
-      const response = await fetch(`${this.caddyAdminUrl}/load`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(caddyConfig),
-      });
+      await withRetry(
+        async () => {
+          const response = await fetch(`${this.caddyAdminUrl}/load`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(caddyConfig),
+          });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Caddy API error:', errorText);
-        return false;
-      }
+          if (!response.ok) {
+            const errorText = await response.text();
+            const error = new Error(`Caddy API error (${response.status}): ${errorText}`);
+            // Add status for retry decision
+            (error as Error & { status?: number }).status = response.status;
+            throw error;
+          }
+        },
+        {
+          maxAttempts: 3,
+          baseDelayMs: 1000,
+          maxDelayMs: 5000,
+          shouldRetry: (err) => {
+            // Retry on network errors
+            if (isNetworkError(err)) {
+              return true;
+            }
+            // Retry on retryable HTTP status codes
+            const status = (err as Error & { status?: number }).status;
+            if (status && isRetryableStatus(status)) {
+              return true;
+            }
+            // Don't retry on client errors (4xx except 429)
+            return false;
+          },
+          onRetry: (attempt, err, delayMs) => {
+            logger.warn({ attempt, error: err.message, delayMs }, 'Retrying Caddy config update');
+          },
+        }
+      );
 
-      console.log('Caddy config updated via Admin API');
+      logger.info('Caddy config updated via Admin API');
       return true;
     } catch (err) {
-      console.error('Failed to update Caddy config:', err);
+      logger.error({ err }, 'Failed to update Caddy config after retries');
       return false;
     }
   }

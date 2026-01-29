@@ -6,7 +6,13 @@ import { serviceRegistry } from './serviceRegistry.js';
 import { dependencyResolver } from './dependencyResolver.js';
 import { proxyManager } from './proxyManager.js';
 import { sendCommand, isAgentConnected } from '../websocket/agentHandler.js';
+import { mutexManager } from '../lib/mutexManager.js';
+import logger from '../lib/logger.js';
+import { auditService } from './auditService.js';
 import type { AppManifest, Deployment, DeploymentStatus, ConfigFile } from '@ownprem/shared';
+
+// Type for compensating transactions (rollback functions)
+type CompensationFn = () => Promise<void>;
 
 interface DeploymentRow {
   id: string;
@@ -114,113 +120,165 @@ export class Deployer {
     const server = db.prepare('SELECT host, is_core FROM servers WHERE id = ?').get(serverId) as ServerRow;
     const serverHost = server.is_core ? '127.0.0.1' : (server.host || '127.0.0.1');
 
-    // Atomic transaction: deployment + secrets
-    runInTransaction(() => {
-      db.prepare(`
-        INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-      `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
+    // Compensating transactions for rollback on failure
+    const compensations: CompensationFn[] = [];
 
-      // Store secrets synchronously within transaction
-      if (Object.keys(secrets).length > 0) {
-        secretsManager.storeSecretsSync(deploymentId, secrets);
+    /**
+     * Execute all compensations in reverse order.
+     * Logs errors but doesn't throw to ensure all compensations run.
+     */
+    const rollback = async (error: Error): Promise<never> => {
+      logger.error({ deploymentId, appName, err: error }, 'Install failed, rolling back');
+      for (const compensate of compensations.reverse()) {
+        try {
+          await compensate();
+        } catch (compensationError) {
+          logger.error({ deploymentId, err: compensationError }, 'Compensation failed during rollback');
+        }
       }
-    });
-
-    // Render config files
-    const configFiles = await configRenderer.renderAppConfigs(manifest, resolvedConfig, secrets);
-
-    // Add install script
-    const installScript = configRenderer.renderInstallScript(manifest, resolvedConfig);
-    if (installScript) {
-      configFiles.push(installScript);
-    }
-
-    // Add configure script
-    const configureScript = configRenderer.renderConfigureScript(manifest);
-    if (configureScript) {
-      configFiles.push(configureScript);
-    }
-
-    // Add uninstall script
-    const uninstallScript = configRenderer.renderUninstallScript(manifest);
-    if (uninstallScript) {
-      configFiles.push(uninstallScript);
-    }
-
-    // Add start script
-    const startScript = configRenderer.renderStartScript(manifest);
-    if (startScript) {
-      configFiles.push(startScript);
-    }
-
-    // Add stop script
-    const stopScript = configRenderer.renderStopScript(manifest);
-    if (stopScript) {
-      configFiles.push(stopScript);
-    }
-
-    // Build environment variables for install
-    const env: Record<string, string> = {
-      SERVER_ID: serverId,
-      APP_NAME: appName,
-      APP_VERSION: appVersion,
+      throw error;
     };
 
-    // Add non-secret config to env
-    for (const [key, value] of Object.entries(resolvedConfig)) {
-      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-        env[key.toUpperCase()] = String(value);
+    try {
+      // Step 1: Create deployment record and secrets (atomic transaction)
+      runInTransaction(() => {
+        db.prepare(`
+          INSERT INTO deployments (id, server_id, app_name, group_id, version, config, status, installed_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, 'installing', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(deploymentId, serverId, appName, finalGroupId, appVersion, JSON.stringify(resolvedConfig));
+
+        // Store secrets synchronously within transaction
+        if (Object.keys(secrets).length > 0) {
+          secretsManager.storeSecretsSync(deploymentId, secrets);
+        }
+      });
+      compensations.push(async () => {
+        logger.debug({ deploymentId }, 'Rolling back: deleting deployment and secrets');
+        runInTransaction(() => {
+          secretsManager.deleteSecretsSync(deploymentId);
+          db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
+        });
+      });
+
+      // Render config files
+      const configFiles = await configRenderer.renderAppConfigs(manifest, resolvedConfig, secrets);
+
+      // Add install script
+      const installScript = configRenderer.renderInstallScript(manifest, resolvedConfig);
+      if (installScript) {
+        configFiles.push(installScript);
       }
+
+      // Add configure script
+      const configureScript = configRenderer.renderConfigureScript(manifest);
+      if (configureScript) {
+        configFiles.push(configureScript);
+      }
+
+      // Add uninstall script
+      const uninstallScript = configRenderer.renderUninstallScript(manifest);
+      if (uninstallScript) {
+        configFiles.push(uninstallScript);
+      }
+
+      // Add start script
+      const startScript = configRenderer.renderStartScript(manifest);
+      if (startScript) {
+        configFiles.push(startScript);
+      }
+
+      // Add stop script
+      const stopScript = configRenderer.renderStopScript(manifest);
+      if (stopScript) {
+        configFiles.push(stopScript);
+      }
+
+      // Build environment variables for install
+      const env: Record<string, string> = {
+        SERVER_ID: serverId,
+        APP_NAME: appName,
+        APP_VERSION: appVersion,
+      };
+
+      // Add non-secret config to env
+      for (const [key, value] of Object.entries(resolvedConfig)) {
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+          env[key.toUpperCase()] = String(value);
+        }
+      }
+
+      // Add secrets to env
+      for (const [key, value] of Object.entries(secrets)) {
+        env[key.toUpperCase()] = value;
+      }
+
+      // Step 2: Send install command to agent
+      const commandId = uuidv4();
+      const sent = sendCommand(serverId, {
+        id: commandId,
+        action: 'install',
+        appName,
+        payload: {
+          version: appVersion,
+          files: configFiles,
+          env,
+        },
+      }, deploymentId);
+
+      if (!sent) {
+        throw new Error(`Failed to send install command to ${serverId}`);
+      }
+
+      // Step 3: Register services and their proxy routes
+      const registeredServiceIds: string[] = [];
+      for (const serviceDef of manifest.provides || []) {
+        const service = await serviceRegistry.registerService(deploymentId, serviceDef.name, serverId, serviceDef.port);
+        registeredServiceIds.push(service.id);
+
+        // Register service route through Caddy proxy
+        await proxyManager.registerServiceRoute(
+          service.id,
+          serviceDef.name,
+          serviceDef,
+          serverHost,
+          serviceDef.port
+        );
+      }
+      if (registeredServiceIds.length > 0) {
+        compensations.push(async () => {
+          logger.debug({ deploymentId }, 'Rolling back: unregistering services and routes');
+          await proxyManager.unregisterServiceRoutesByDeployment(deploymentId);
+          serviceRegistry.unregisterServicesSync(deploymentId);
+        });
+      }
+
+      // Step 4: Register proxy route if app has webui
+      if (manifest.webui?.enabled) {
+        await proxyManager.registerRoute(deploymentId, manifest, serverHost);
+        compensations.push(async () => {
+          logger.debug({ deploymentId }, 'Rolling back: unregistering web UI route');
+          await proxyManager.unregisterRoute(deploymentId);
+        });
+      }
+
+      // Step 5: Update Caddy config and reload
+      const caddySuccess = await proxyManager.updateAndReload();
+      if (!caddySuccess) {
+        throw new Error('Failed to update Caddy configuration');
+      }
+
+      // Audit log
+      auditService.log({
+        action: 'deployment_installed',
+        resourceType: 'deployment',
+        resourceId: deploymentId,
+        details: { appName, serverId, version: appVersion },
+      });
+
+      return (await this.getDeployment(deploymentId))!;
+    } catch (error) {
+      return rollback(error instanceof Error ? error : new Error(String(error)));
     }
-
-    // Add secrets to env
-    for (const [key, value] of Object.entries(secrets)) {
-      env[key.toUpperCase()] = value;
-    }
-
-    // Send install command to agent
-    const commandId = uuidv4();
-    const sent = sendCommand(serverId, {
-      id: commandId,
-      action: 'install',
-      appName,
-      payload: {
-        version: appVersion,
-        files: configFiles,
-        env,
-      },
-    }, deploymentId);
-
-    if (!sent) {
-      // Rollback
-      db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
-      await secretsManager.deleteSecrets(deploymentId);
-      throw new Error(`Failed to send install command to ${serverId}`);
-    }
-
-    // Register services and their proxy routes
-    for (const serviceDef of manifest.provides || []) {
-      const service = await serviceRegistry.registerService(deploymentId, serviceDef.name, serverId, serviceDef.port);
-      // Register service route through Caddy proxy
-      await proxyManager.registerServiceRoute(
-        service.id,
-        serviceDef.name,
-        serviceDef,
-        serverHost,
-        serviceDef.port
-      );
-    }
-
-    // Register proxy route if app has webui
-    if (manifest.webui?.enabled) {
-      await proxyManager.registerRoute(deploymentId, manifest, serverHost);
-    }
-
-    // Update Caddy config and reload
-    await proxyManager.updateAndReload();
-
-    return (await this.getDeployment(deploymentId))!;
   }
 
   async configure(deploymentId: string, newConfig: Record<string, unknown>): Promise<Deployment> {
@@ -294,6 +352,13 @@ export class Deployer {
       appName: deployment.appName,
     }, deploymentId);
 
+    auditService.log({
+      action: 'deployment_started',
+      resourceType: 'deployment',
+      resourceId: deploymentId,
+      details: { appName: deployment.appName, serverId: deployment.serverId },
+    });
+
     return (await this.getDeployment(deploymentId))!;
   }
 
@@ -323,6 +388,13 @@ export class Deployer {
       appName: deployment.appName,
     }, deploymentId);
 
+    auditService.log({
+      action: 'deployment_stopped',
+      resourceType: 'deployment',
+      resourceId: deploymentId,
+      details: { appName: deployment.appName, serverId: deployment.serverId },
+    });
+
     return (await this.getDeployment(deploymentId))!;
   }
 
@@ -343,6 +415,13 @@ export class Deployer {
       action: 'restart',
       appName: deployment.appName,
     }, deploymentId);
+
+    auditService.log({
+      action: 'deployment_restarted',
+      resourceType: 'deployment',
+      resourceId: deploymentId,
+      details: { appName: deployment.appName, serverId: deployment.serverId },
+    });
 
     return deployment;
   }
@@ -388,8 +467,18 @@ export class Deployer {
       db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
     });
 
+    // Clean up deployment mutex to prevent memory leak
+    mutexManager.cleanupDeploymentMutex(deploymentId);
+
     // Update Caddy config and reload (external operation, outside transaction)
     await proxyManager.updateAndReload();
+
+    auditService.log({
+      action: 'deployment_uninstalled',
+      resourceType: 'deployment',
+      resourceId: deploymentId,
+      details: { appName: deployment.appName, serverId: deployment.serverId },
+    });
   }
 
   async getDeployment(deploymentId: string): Promise<Deployment | null> {

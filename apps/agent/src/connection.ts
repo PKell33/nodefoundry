@@ -1,5 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import type { AgentCommand, AgentStatusReport, LogResult, CommandAck } from '@ownprem/shared';
+import logger from './lib/logger.js';
 
 const RECONNECTION_DELAY_MS = 5000;
 const RECONNECTION_DELAY_MAX_MS = 30000;
@@ -11,6 +12,7 @@ export interface ConnectionOptions {
   onCommand: (command: AgentCommand) => Promise<void>;
   onConnect: () => void;
   onDisconnect: () => void;
+  onServerShutdown?: () => void;
 }
 
 export class Connection {
@@ -22,7 +24,7 @@ export class Connection {
   }
 
   connect(): void {
-    console.log(`Connecting to ${this.options.orchestratorUrl} as ${this.options.serverId}...`);
+    logger.info({ orchestratorUrl: this.options.orchestratorUrl, serverId: this.options.serverId }, 'Connecting to orchestrator');
 
     this.socket = io(this.options.orchestratorUrl, {
       auth: {
@@ -36,30 +38,38 @@ export class Connection {
     });
 
     this.socket.on('connect', () => {
-      console.log(`Connected to orchestrator as ${this.options.serverId}`);
+      logger.info({ serverId: this.options.serverId }, 'Connected to orchestrator');
       this.options.onConnect();
     });
 
     this.socket.on('disconnect', (reason) => {
-      console.log(`Disconnected from orchestrator: ${reason}`);
+      logger.info({ reason }, 'Disconnected from orchestrator');
       this.options.onDisconnect();
     });
 
     this.socket.on('connect_error', (err) => {
-      console.error(`Connection error: ${err.message}`);
+      logger.error({ error: err.message }, 'Connection error');
     });
 
     this.socket.on('command', async (command: AgentCommand) => {
       try {
         await this.options.onCommand(command);
       } catch (err) {
-        console.error(`Error handling command ${command.id}:`, err);
+        logger.error({ commandId: command.id, err }, 'Error handling command');
       }
     });
 
     // Handle heartbeat ping/pong
     this.socket.on('ping', () => {
       this.socket?.emit('pong');
+    });
+
+    // Handle server shutdown notification
+    this.socket.on('server:shutdown', () => {
+      logger.info('Received shutdown notification from orchestrator');
+      if (this.options.onServerShutdown) {
+        this.options.onServerShutdown();
+      }
     });
   }
 
@@ -72,7 +82,7 @@ export class Connection {
 
   sendStatus(report: AgentStatusReport): void {
     if (!this.socket?.connected) {
-      console.warn('Cannot send status: not connected');
+      logger.warn('Cannot send status: not connected');
       return;
     }
     this.socket.emit('status', report);
@@ -80,7 +90,7 @@ export class Connection {
 
   sendCommandAck(ack: CommandAck): void {
     if (!this.socket?.connected) {
-      console.warn('Cannot send command ack: not connected');
+      logger.warn('Cannot send command ack: not connected');
       return;
     }
     this.socket.emit('command:ack', ack);
@@ -88,7 +98,7 @@ export class Connection {
 
   sendCommandResult(result: { commandId: string; status: 'success' | 'error'; message?: string; duration?: number }): void {
     if (!this.socket?.connected) {
-      console.warn('Cannot send command result: not connected');
+      logger.warn('Cannot send command result: not connected');
       return;
     }
     this.socket.emit('command:result', result);
@@ -96,7 +106,7 @@ export class Connection {
 
   sendLogResult(result: LogResult): void {
     if (!this.socket?.connected) {
-      console.warn('Cannot send log result: not connected');
+      logger.warn('Cannot send log result: not connected');
       return;
     }
     this.socket.emit('logs:result', result);

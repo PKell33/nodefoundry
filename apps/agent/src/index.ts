@@ -2,6 +2,7 @@ import type { AgentCommand, AgentStatusReport } from '@ownprem/shared';
 import { Connection } from './connection.js';
 import { Executor } from './executor.js';
 import { Reporter } from './reporter.js';
+import logger from './lib/logger.js';
 
 const STATUS_REPORT_INTERVAL = 10000; // 10 seconds
 
@@ -10,6 +11,8 @@ class Agent {
   private executor: Executor;
   private reporter: Reporter;
   private statusInterval: NodeJS.Timeout | null = null;
+  private isShuttingDown = false;
+  private activeCommandCount = 0;
 
   constructor(
     private serverId: string,
@@ -28,13 +31,12 @@ class Agent {
       onCommand: (cmd) => this.handleCommand(cmd),
       onConnect: () => this.onConnect(),
       onDisconnect: () => this.onDisconnect(),
+      onServerShutdown: () => this.onServerShutdown(),
     });
   }
 
   async start(): Promise<void> {
-    console.log(`Starting Ownprem Agent...`);
-    console.log(`Server ID: ${this.serverId}`);
-    console.log(`Orchestrator URL: ${this.orchestratorUrl}`);
+    logger.info({ serverId: this.serverId, orchestratorUrl: this.orchestratorUrl }, 'Starting Ownprem Agent');
 
     this.connection.connect();
   }
@@ -56,8 +58,57 @@ class Agent {
     }
   }
 
+  private onServerShutdown(): void {
+    logger.info('Orchestrator is shutting down, initiating graceful shutdown');
+    this.shutdown();
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.isShuttingDown) {
+      return;
+    }
+    this.isShuttingDown = true;
+    logger.info('Starting graceful shutdown');
+
+    // Stop accepting new commands by clearing status interval
+    if (this.statusInterval) {
+      clearInterval(this.statusInterval);
+      this.statusInterval = null;
+    }
+
+    // Wait for active commands to complete (max 30 seconds)
+    const startTime = Date.now();
+    const maxWaitMs = 30000;
+    while (this.activeCommandCount > 0) {
+      const elapsed = Date.now() - startTime;
+      if (elapsed >= maxWaitMs) {
+        logger.warn({ activeCommands: this.activeCommandCount }, 'Shutdown timeout - commands still in progress');
+        break;
+      }
+      logger.debug({ activeCommands: this.activeCommandCount }, 'Waiting for active commands to complete');
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+
+    // Disconnect cleanly
+    this.connection.disconnect();
+    logger.info('Graceful shutdown complete');
+    process.exit(0);
+  }
+
   private async handleCommand(cmd: AgentCommand): Promise<void> {
-    console.log(`[${cmd.id}] Received command: ${cmd.action} ${cmd.appName}`);
+    // Reject new commands during shutdown
+    if (this.isShuttingDown) {
+      logger.warn({ commandId: cmd.id, action: cmd.action, appName: cmd.appName }, 'Rejecting command during shutdown');
+      this.connection.sendCommandResult({
+        commandId: cmd.id,
+        status: 'error',
+        message: 'Agent is shutting down',
+      });
+      return;
+    }
+
+    logger.info({ commandId: cmd.id, action: cmd.action, appName: cmd.appName }, 'Received command');
+    this.activeCommandCount++;
 
     // Send acknowledgment immediately
     this.connection.sendCommandAck({
@@ -105,10 +156,10 @@ class Agent {
         duration: Date.now() - start,
       });
 
-      console.log(`[${cmd.id}] Command completed successfully`);
+      logger.info({ commandId: cmd.id, action: cmd.action, duration: Date.now() - start }, 'Command completed successfully');
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[${cmd.id}] Command failed: ${message}`);
+      logger.error({ commandId: cmd.id, action: cmd.action, error: message }, 'Command failed');
 
       this.connection.sendCommandResult({
         commandId: cmd.id,
@@ -117,6 +168,9 @@ class Agent {
         duration: Date.now() - start,
       });
     }
+
+    // Decrement active command count
+    this.activeCommandCount--;
 
     // Report status after command completion
     await this.reportStatus();
@@ -133,7 +187,7 @@ class Agent {
 
       this.connection.sendStatus(report);
     } catch (err) {
-      console.error('Failed to report status:', err);
+      logger.error({ err }, 'Failed to report status');
     }
   }
 }
@@ -145,17 +199,17 @@ const authToken = process.env.AUTH_TOKEN || null;
 
 const agent = new Agent(serverId, orchestratorUrl, authToken);
 agent.start().catch((err) => {
-  console.error('Failed to start agent:', err);
+  logger.fatal({ err }, 'Failed to start agent');
   process.exit(1);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\nShutting down agent...');
-  process.exit(0);
+  logger.info('Received SIGINT');
+  agent.shutdown();
 });
 
 process.on('SIGTERM', () => {
-  console.log('Shutting down agent...');
-  process.exit(0);
+  logger.info('Received SIGTERM');
+  agent.shutdown();
 });

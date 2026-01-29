@@ -13,6 +13,7 @@ import proxyRouter from './routes/proxy.js';
 import auditRouter from './routes/audit.js';
 import agentRouter from './routes/agent.js';
 import certificateRouter from './routes/certificate.js';
+import commandsRouter from './routes/commands.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { devBypassAuth, AuthenticatedRequest } from './middleware/auth.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -90,7 +91,17 @@ export function createApi(): express.Application {
 
   // Health check endpoints (unauthenticated)
   // Simple liveness probe
-  app.get('/health', (_req, res) => {
+  app.get('/health', async (_req, res) => {
+    // Check if server is shutting down
+    try {
+      const { isServerShuttingDown } = await import('../index.js');
+      if (isServerShuttingDown()) {
+        res.status(503).json({ status: 'shutting_down', timestamp: new Date().toISOString() });
+        return;
+      }
+    } catch {
+      // Ignore import errors during startup
+    }
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
@@ -126,6 +137,18 @@ export function createApi(): express.Application {
       allHealthy = false;
     }
 
+    // Check resource usage (mutex maps) for memory leak detection
+    try {
+      const { mutexManager } = await import('../lib/mutexManager.js');
+      const stats = mutexManager.getStats();
+      checks.resources = {
+        status: 'healthy',
+        message: `Mutexes: ${stats.serverMutexes} servers, ${stats.deploymentMutexes} deployments`,
+      };
+    } catch (err) {
+      checks.resources = { status: 'unhealthy', message: err instanceof Error ? err.message : 'Unknown error' };
+    }
+
     const status = allHealthy ? 200 : 503;
     res.status(status).json({
       status: allHealthy ? 'ready' : 'not_ready',
@@ -153,6 +176,7 @@ export function createApi(): express.Application {
   app.use('/api/services', devBypassAuth, servicesRouter); // Read-only, no CSRF needed
   app.use('/api/system', devBypassAuth, systemRouter); // Read-only, no CSRF needed
   app.use('/api/audit-logs', devBypassAuth, auditRouter); // Read-only, no CSRF needed
+  app.use('/api/commands', devBypassAuth, commandsRouter); // Read-only, no CSRF needed
 
   // Error handling
   app.use('/api/*', notFoundHandler);

@@ -69,6 +69,17 @@ class MutexManager {
   cleanupDeploymentMutex(deploymentId: string): void {
     this.deploymentMutexes.delete(deploymentId);
   }
+
+  /**
+   * Get statistics about mutex usage for monitoring.
+   * Useful for detecting potential memory leaks.
+   */
+  getStats(): { serverMutexes: number; deploymentMutexes: number } {
+    return {
+      serverMutexes: this.serverMutexes.size,
+      deploymentMutexes: this.deploymentMutexes.size,
+    };
+  }
 }
 
 export const mutexManager = new MutexManager();

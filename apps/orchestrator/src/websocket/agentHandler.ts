@@ -34,6 +34,7 @@ const pendingLogRequests = new Map<string, {
   resolve: (result: LogResult) => void;
   reject: (error: Error) => void;
   timeout: NodeJS.Timeout;
+  serverId: string;
 }>();
 
 // Pending commands - maps commandId to tracking info for ack/timeout
@@ -231,6 +232,12 @@ export function setupAgentHandler(io: SocketServer): void {
 
       // Clean up pending commands for this server
       cleanupPendingCommandsForServer(serverId);
+
+      // Clean up pending log requests for this server
+      cleanupPendingLogRequestsForServer(serverId);
+
+      // Clean up server mutex to prevent memory leak
+      mutexManager.cleanupServerMutex(serverId);
 
       db.prepare(`
         UPDATE servers SET agent_status = 'offline', updated_at = CURRENT_TIMESTAMP
@@ -532,6 +539,19 @@ function cleanupPendingCommandsForServer(serverId: string): void {
   }
 }
 
+/**
+ * Clean up pending log requests for a server (e.g., on disconnect).
+ */
+function cleanupPendingLogRequestsForServer(serverId: string): void {
+  for (const [commandId, pending] of pendingLogRequests) {
+    if (pending.serverId === serverId) {
+      clearTimeout(pending.timeout);
+      pendingLogRequests.delete(commandId);
+      pending.reject(new Error('Agent disconnected'));
+    }
+  }
+}
+
 export async function requestLogs(
   serverId: string,
   appName: string,
@@ -551,7 +571,7 @@ export async function requestLogs(
       reject(new Error('Log request timed out'));
     }, timeoutMs);
 
-    pendingLogRequests.set(commandId, { resolve, reject, timeout });
+    pendingLogRequests.set(commandId, { resolve, reject, timeout, serverId });
 
     conn.socket.emit('command', {
       id: commandId,
@@ -627,4 +647,68 @@ export function sendCommand(serverId: string, command: { id: string; action: str
   conn.socket.emit('command', command);
   wsLogger.info({ serverId, action: command.action, appName: command.appName, commandId: command.id }, 'Command sent');
   return true;
+}
+
+// Shutdown timeout for graceful shutdown
+const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
+
+/**
+ * Get the count of pending commands.
+ */
+export function getPendingCommandCount(): number {
+  return pendingCommands.size;
+}
+
+/**
+ * Gracefully shutdown the agent handler.
+ * Broadcasts shutdown to all agents and waits for pending commands.
+ */
+export async function shutdownAgentHandler(io: import('socket.io').Server): Promise<void> {
+  wsLogger.info('Starting graceful shutdown of agent handler');
+
+  // Broadcast shutdown notification to all agents
+  io.emit('server:shutdown', { timestamp: new Date() });
+  wsLogger.info({ agentCount: connectedAgents.size }, 'Broadcast shutdown notification to agents');
+
+  // Wait for pending commands to complete (with timeout)
+  const startTime = Date.now();
+  while (pendingCommands.size > 0) {
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= SHUTDOWN_TIMEOUT) {
+      wsLogger.warn({ pendingCount: pendingCommands.size }, 'Shutdown timeout - aborting pending commands');
+
+      // Reject remaining pending commands
+      for (const [commandId, pending] of pendingCommands) {
+        clearTimeout(pending.ackTimeout);
+        if (pending.completionTimeout) {
+          clearTimeout(pending.completionTimeout);
+        }
+        pending.reject(new Error('Orchestrator shutting down'));
+        pendingCommands.delete(commandId);
+      }
+      break;
+    }
+
+    wsLogger.debug({ pendingCount: pendingCommands.size, elapsed }, 'Waiting for pending commands');
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+
+  // Clear all heartbeat intervals and disconnect agents
+  for (const [serverId, conn] of connectedAgents) {
+    if (conn.heartbeatInterval) {
+      clearInterval(conn.heartbeatInterval);
+    }
+    conn.socket.disconnect(true);
+    mutexManager.cleanupServerMutex(serverId);
+  }
+  connectedAgents.clear();
+
+  // Clear pending log requests
+  for (const [commandId, pending] of pendingLogRequests) {
+    clearTimeout(pending.timeout);
+    pending.reject(new Error('Orchestrator shutting down'));
+  }
+  pendingLogRequests.clear();
+
+  wsLogger.info('Agent handler shutdown complete');
 }
