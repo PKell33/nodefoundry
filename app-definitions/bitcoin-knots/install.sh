@@ -6,6 +6,12 @@ DATA_DIR="${DATA_DIR:-/var/lib/bitcoin}"
 VERSION="${APP_VERSION:-29.2.knots20251110}"
 NETWORK="${NETWORK:-mainnet}"
 
+# Dev mode: skip actual installation
+if [ "${DEV_MODE:-}" = "true" ] || [ ! -w "/opt" ]; then
+  echo "Bitcoin Knots ${VERSION} installed (dev/mock mode)!"
+  exit 0
+fi
+
 echo "Installing Bitcoin Knots ${VERSION}..."
 
 mkdir -p "$APP_DIR"

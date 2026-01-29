@@ -211,10 +211,16 @@ export const api = {
     });
   },
 
-  async installApp(serverId: string, appName: string, config?: Record<string, unknown>, groupId?: string) {
+  async installApp(
+    serverId: string,
+    appName: string,
+    config?: Record<string, unknown>,
+    groupId?: string,
+    serviceBindings?: Record<string, string>
+  ) {
     return fetchWithAuth<Deployment>(`${API_BASE}/deployments`, {
       method: 'POST',
-      body: JSON.stringify({ serverId, appName, config, groupId }),
+      body: JSON.stringify({ serverId, appName, config, groupId, serviceBindings }),
     });
   },
 
@@ -239,6 +245,10 @@ export const api = {
 
   async uninstallDeployment(id: string) {
     return fetchWithAuth<void>(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
+  },
+
+  async getConnectionInfo(deploymentId: string) {
+    return fetchWithAuth<ConnectionInfo>(`${API_BASE}/deployments/${deploymentId}/connection-info`);
   },
 
   // Services
@@ -444,7 +454,7 @@ export interface Server {
   id: string;
   name: string;
   host: string | null;
-  isFoundry: boolean;
+  isCore: boolean;
   agentStatus: 'online' | 'offline' | 'error';
   metrics?: ServerMetrics;
   lastSeen: string | null;
@@ -597,4 +607,27 @@ export interface TotpSetupResponse {
 export interface LoginResponse extends AuthResponse {
   totpRequired?: boolean;
   message?: string;
+}
+
+export interface ServiceConnectionInfo {
+  serviceName: string;
+  protocol: string;
+  // Proxied connection (through Caddy - recommended)
+  host: string;
+  port?: number;
+  path?: string;
+  // Direct connection (internal only)
+  directHost: string;
+  directPort: number;
+  // Tor connection
+  torAddress?: string;
+  credentials?: Record<string, string>;
+}
+
+export interface ConnectionInfo {
+  appName: string;
+  displayName: string;
+  serverId: string;
+  status: string;
+  services: ServiceConnectionInfo[];
 }

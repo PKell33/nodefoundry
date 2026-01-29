@@ -182,6 +182,42 @@ export class ConfigRenderer {
       mode: '0755',
     };
   }
+
+  renderStartScript(manifest: AppManifest): ConfigFile | null {
+    const appDefPath = join(config.paths.appDefinitions, manifest.name);
+    const scriptPath = join(appDefPath, 'start.sh');
+
+    if (!existsSync(scriptPath)) {
+      return null;
+    }
+
+    const script = readFileSync(scriptPath, 'utf-8');
+    const appDir = `${config.paths.apps}/${manifest.name}`;
+
+    return {
+      path: `${appDir}/start.sh`,
+      content: script,
+      mode: '0755',
+    };
+  }
+
+  renderStopScript(manifest: AppManifest): ConfigFile | null {
+    const appDefPath = join(config.paths.appDefinitions, manifest.name);
+    const scriptPath = join(appDefPath, 'stop.sh');
+
+    if (!existsSync(scriptPath)) {
+      return null;
+    }
+
+    const script = readFileSync(scriptPath, 'utf-8');
+    const appDir = `${config.paths.apps}/${manifest.name}`;
+
+    return {
+      path: `${appDir}/stop.sh`,
+      content: script,
+      mode: '0755',
+    };
+  }
 }
 
 export const configRenderer = new ConfigRenderer();

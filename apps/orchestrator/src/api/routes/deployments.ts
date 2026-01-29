@@ -124,8 +124,8 @@ router.get('/', requireAuth, async (req: AuthenticatedRequest, res, next) => {
 // POST /api/deployments - Install an app (admin for the group)
 router.post('/', requireAuth, validateBody(schemas.deployments.create), canManageDeployment, async (req, res, next) => {
   try {
-    const { serverId, appName, config, version, groupId } = req.body;
-    const deployment = await deployer.install(serverId, appName, config || {}, version, groupId);
+    const { serverId, appName, config, version, groupId, serviceBindings } = req.body;
+    const deployment = await deployer.install(serverId, appName, config || {}, version, groupId, serviceBindings);
     res.status(201).json(deployment);
   } catch (err) {
     next(err);
@@ -252,6 +252,102 @@ router.delete('/:id', requireAuth, canManageDeployment, async (req, res, next) =
   try {
     await deployer.uninstall(req.params.id);
     res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/deployments/:id/connection-info - Get connection details and credentials
+router.get('/:id/connection-info', requireAuth, canManageDeployment, async (req: AuthenticatedRequest, res, next) => {
+  try {
+    const deployment = await deployer.getDeployment(req.params.id);
+    if (!deployment) {
+      throw createError('Deployment not found', 404, 'DEPLOYMENT_NOT_FOUND');
+    }
+
+    // Get the app manifest
+    const db = getDb();
+    const appRow = db.prepare('SELECT manifest FROM app_registry WHERE name = ?').get(deployment.appName) as AppRegistryRow | undefined;
+    if (!appRow) {
+      throw createError('App not found', 404, 'APP_NOT_FOUND');
+    }
+    const manifest = JSON.parse(appRow.manifest) as AppManifest;
+
+    // Get services provided by this deployment
+    const services = await serviceRegistry.getServicesByDeployment(deployment.id);
+
+    // Get decrypted credentials (may fail if secrets key changed)
+    const { secretsManager } = await import('../../services/secretsManager.js');
+    const { proxyManager } = await import('../../services/proxyManager.js');
+    let secrets: Record<string, unknown> | null = null;
+    try {
+      secrets = await secretsManager.getSecrets(deployment.id);
+    } catch (err) {
+      console.warn('Failed to decrypt secrets for deployment', deployment.id, err);
+      // Continue without credentials - they may need to be regenerated
+    }
+
+    // Build connection info for each service
+    const connectionInfo = await Promise.all(services.map(async service => {
+      // Find the service definition in manifest to get credential field info
+      const serviceDef = manifest.provides?.find(p => p.name === service.serviceName);
+
+      // Get credentials for this service if defined
+      let credentials: Record<string, string> | undefined;
+      if (serviceDef?.credentials && secrets) {
+        credentials = {};
+        for (const field of serviceDef.credentials.fields || []) {
+          if (secrets[field]) {
+            credentials[field] = String(secrets[field]);
+          }
+        }
+      }
+
+      // Get the proxied route info
+      const serviceRoute = await proxyManager.getServiceRoute(service.id);
+
+      // Build external connection details (through Caddy proxy)
+      let externalHost: string;
+      let externalPort: number | undefined;
+      let externalPath: string | undefined;
+
+      if (serviceRoute) {
+        if (serviceRoute.routeType === 'http') {
+          externalHost = 'ownprem.local';
+          externalPath = serviceRoute.externalPath;
+        } else {
+          externalHost = 'ownprem.local';
+          externalPort = serviceRoute.externalPort;
+        }
+      } else {
+        // Fallback to direct connection if no route registered
+        externalHost = service.host;
+        externalPort = service.port;
+      }
+
+      return {
+        serviceName: service.serviceName,
+        protocol: serviceDef?.protocol || 'tcp',
+        // Proxied connection (recommended)
+        host: externalHost,
+        port: externalPort || service.port,
+        path: externalPath,
+        // Direct connection (internal use only)
+        directHost: service.host,
+        directPort: service.port,
+        // Tor connection (bypasses Caddy)
+        torAddress: service.torAddress,
+        credentials,
+      };
+    }));
+
+    res.json({
+      appName: deployment.appName,
+      displayName: manifest.displayName,
+      serverId: deployment.serverId,
+      status: deployment.status,
+      services: connectionInfo,
+    });
   } catch (err) {
     next(err);
   }

@@ -1,9 +1,9 @@
--- Servers (all machines including foundry)
+-- Servers (all machines including core)
 CREATE TABLE IF NOT EXISTS servers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     host TEXT,
-    is_foundry BOOLEAN DEFAULT FALSE,
+    is_core BOOLEAN DEFAULT FALSE,
     agent_status TEXT DEFAULT 'offline',
     auth_token TEXT,
     metrics JSON,
@@ -71,6 +71,24 @@ CREATE TABLE IF NOT EXISTS proxy_routes (
     active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Service routes (for proxying service endpoints through Caddy)
+CREATE TABLE IF NOT EXISTS service_routes (
+    id TEXT PRIMARY KEY,
+    service_id TEXT NOT NULL REFERENCES services(id) ON DELETE CASCADE,
+    route_type TEXT NOT NULL, -- 'http' or 'tcp'
+    external_path TEXT,       -- For HTTP: /services/bitcoin-rpc
+    external_port INTEGER,    -- For TCP: allocated port (e.g., 50001)
+    upstream_host TEXT NOT NULL,
+    upstream_port INTEGER NOT NULL,
+    active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE(external_path),
+    UNIQUE(external_port)
+);
+
+CREATE INDEX IF NOT EXISTS idx_service_routes_service ON service_routes(service_id);
 
 -- Command log
 CREATE TABLE IF NOT EXISTS command_log (
@@ -162,9 +180,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS idx_audit_log_timestamp ON audit_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
 
--- Initialize foundry server on first run
-INSERT OR IGNORE INTO servers (id, name, is_foundry, agent_status)
-VALUES ('foundry', 'foundry', TRUE, 'offline');
+-- Initialize core server on first run
+INSERT OR IGNORE INTO servers (id, name, is_core, agent_status)
+VALUES ('core', 'core', TRUE, 'offline');
 
 -- Initialize default group on first run
 INSERT OR IGNORE INTO groups (id, name, description, totp_required)

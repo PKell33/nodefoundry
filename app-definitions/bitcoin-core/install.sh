@@ -6,6 +6,12 @@ DATA_DIR="${DATA_DIR:-/var/lib/bitcoin}"
 VERSION="${APP_VERSION:-28.0}"
 NETWORK="${NETWORK:-mainnet}"
 
+# Dev mode: skip actual installation
+if [ "${DEV_MODE:-}" = "true" ] || [ ! -w "/opt" ]; then
+  echo "Bitcoin Core ${VERSION} installed (dev/mock mode)!"
+  exit 0
+fi
+
 echo "Installing Bitcoin Core ${VERSION}..."
 
 mkdir -p "$APP_DIR"

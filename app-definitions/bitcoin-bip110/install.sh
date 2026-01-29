@@ -7,6 +7,12 @@ VERSION="${APP_VERSION:-29.2.knots20251110}"
 BIP110_VERSION="v0.1"
 NETWORK="${NETWORK:-mainnet}"
 
+# Dev mode: skip actual installation
+if [ "${DEV_MODE:-}" = "true" ] || [ ! -w "/opt" ]; then
+  echo "Bitcoin Knots + BIP-110 ${VERSION} installed (dev/mock mode)!"
+  exit 0
+fi
+
 echo "Installing Bitcoin Knots + BIP-110 ${VERSION}..."
 echo "BIP-110: Temporary restrictions on arbitrary data storage"
 echo "Learn more: https://bip110.org/"
