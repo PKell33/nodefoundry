@@ -69,10 +69,12 @@ configSchema:
     default: false
   - name: rpcuser
     type: string
+    label: RPC Username
     generated: true
     secret: true
   - name: rpcpassword
     type: password
+    label: RPC Password
     generated: true
     secret: true
 

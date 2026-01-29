@@ -62,6 +62,7 @@ export const AppManifestSchema = z.object({
   version: z.string(),
   category: z.enum(['bitcoin', 'lightning', 'indexer', 'explorer', 'utility']),
   source: AppSourceSchema,
+  conflicts: z.array(z.string()).optional(),
   provides: z.array(ServiceDefinitionSchema).optional(),
   requires: z.array(ServiceRequirementSchema).optional(),
   tor: z.array(TorServiceSchema).optional(),

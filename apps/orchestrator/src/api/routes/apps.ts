@@ -50,6 +50,19 @@ function syncAppRegistry(): void {
   const db = getDb();
   const manifests = loadAppManifests();
 
+  // Get current app names from filesystem
+  const appNames = new Set(manifests.map(m => m.name));
+
+  // Remove apps that no longer exist in filesystem
+  const existingApps = db.prepare('SELECT name FROM app_registry').all() as { name: string }[];
+  const deleteStmt = db.prepare('DELETE FROM app_registry WHERE name = ?');
+  for (const { name } of existingApps) {
+    if (!appNames.has(name)) {
+      deleteStmt.run(name);
+    }
+  }
+
+  // Insert or update apps from filesystem
   const insertStmt = db.prepare(`
     INSERT OR REPLACE INTO app_registry (name, manifest, loaded_at)
     VALUES (?, ?, CURRENT_TIMESTAMP)

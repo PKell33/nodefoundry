@@ -7,6 +7,8 @@ export interface AppManifest {
 
   source: AppSource;
 
+  conflicts?: string[];
+
   provides?: ServiceDefinition[];
   requires?: ServiceRequirement[];
 
