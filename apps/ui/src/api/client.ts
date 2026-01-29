@@ -453,16 +453,31 @@ export interface ServerMetrics {
   loadAverage: [number, number, number];
 }
 
+export interface AppSource {
+  type: 'binary' | 'git' | 'apt';
+  githubRepo?: string;
+  downloadUrl?: string;
+  checksumUrl?: string;
+  gitUrl?: string;
+  tagPrefix?: string;
+}
+
 export interface AppManifest {
   name: string;
   displayName: string;
   description: string;
   version: string;
   category: string;
+  source: AppSource;
+  conflicts?: string[];
   webui?: { enabled: boolean; port: number; basePath: string };
   configSchema: ConfigField[];
   requires?: ServiceRequirement[];
   provides?: ServiceDefinition[];
+  resources?: {
+    minMemory?: string;
+    minDisk?: string;
+  };
 }
 
 export interface ConfigField {
