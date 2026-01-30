@@ -4,7 +4,11 @@ import { randomBytes } from 'crypto';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const isDevelopment = (process.env.NODE_ENV || 'development') === 'development';
+const nodeEnv = process.env.NODE_ENV;
+if (!nodeEnv) {
+  console.warn('WARNING: NODE_ENV not set - defaulting to production mode for safety');
+}
+const isDevelopment = nodeEnv === 'development';
 
 // Default values
 const DEFAULT_PORT = 3001;

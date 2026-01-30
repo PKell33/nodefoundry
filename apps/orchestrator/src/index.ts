@@ -120,6 +120,17 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', () => { shutdown(); });
   process.on('SIGTERM', () => { shutdown(); });
+
+  // Handle unhandled promise rejections
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error({ reason, promise: String(promise) }, 'Unhandled promise rejection');
+  });
+
+  // Handle uncaught exceptions - attempt graceful shutdown
+  process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'Uncaught exception - initiating shutdown');
+    shutdown();
+  });
 }
 
 main().catch((err) => {

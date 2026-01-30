@@ -43,8 +43,14 @@ export function startCertRenewal(): void {
   renewalLogger.info({ intervalHours: CHECK_INTERVAL / (60 * 60 * 1000) }, 'Starting certificate renewal job');
 
   // Run immediately on startup, then on interval
-  checkAndRenewCertificates();
-  checkInterval = setInterval(checkAndRenewCertificates, CHECK_INTERVAL);
+  checkAndRenewCertificates().catch(err => {
+    renewalLogger.error({ err }, 'Error in initial certificate renewal check');
+  });
+  checkInterval = setInterval(() => {
+    checkAndRenewCertificates().catch(err => {
+      renewalLogger.error({ err }, 'Error in certificate renewal check');
+    });
+  }, CHECK_INTERVAL);
 }
 
 /**

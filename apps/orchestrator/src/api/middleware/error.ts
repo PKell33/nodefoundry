@@ -1,4 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
+import logger from '../../lib/logger.js';
+
+const apiLogger = logger.child({ component: 'api-error' });
 
 export interface ApiError extends Error {
   statusCode?: number;
@@ -11,9 +14,15 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  console.error('API Error:', err);
-
   const statusCode = err.statusCode || 500;
+
+  // Log at appropriate level based on status code
+  if (statusCode >= 500) {
+    apiLogger.error({ err, statusCode }, 'API error');
+  } else {
+    apiLogger.warn({ err, statusCode }, 'API client error');
+  }
+
   const message = err.message || 'Internal server error';
   const code = err.code || 'INTERNAL_ERROR';
 

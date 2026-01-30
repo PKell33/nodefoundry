@@ -768,7 +768,15 @@ class AuthService {
     if (userCount.count === 0) {
       // Create default admin user in development
       if (config.isDevelopment) {
-        const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'admin';
+        const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD;
+        if (!defaultPassword) {
+          console.warn(
+            'WARNING: DEFAULT_ADMIN_PASSWORD not set. ' +
+            'Set this environment variable to create a dev admin user automatically. ' +
+            'Example: DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)'
+          );
+          return;
+        }
         await this.createUser('admin', defaultPassword, true); // isSystemAdmin = true
         // System admins don't need group membership - they have full access
         console.log('Created default admin user (username: admin)');

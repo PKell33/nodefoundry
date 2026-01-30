@@ -32,9 +32,13 @@ class SystemAppsService {
     sysLogger.info('Starting system apps monitor');
 
     // Check immediately and then every 10 seconds until all mandatory apps are installed
-    this.checkAndInstall();
+    this.checkAndInstall().catch(err => {
+      sysLogger.error({ err }, 'Error in initial system apps check');
+    });
     this.checkInterval = setInterval(() => {
-      this.checkAndInstall();
+      this.checkAndInstall().catch(err => {
+        sysLogger.error({ err }, 'Error in system apps check');
+      });
     }, 10 * 1000);
   }
 
