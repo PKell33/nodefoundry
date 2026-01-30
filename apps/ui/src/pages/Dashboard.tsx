@@ -38,7 +38,7 @@ export default function Dashboard() {
     <div className="space-y-6 md:space-y-8">
       <div>
         <h1 className="text-xl md:text-2xl font-bold mb-1 md:mb-2">Dashboard</h1>
-        <p className="text-sm md:text-base text-gray-500 dark:text-gray-400">
+        <p className="text-sm md:text-base text-muted">
           Overview of your Bitcoin infrastructure
         </p>
       </div>
@@ -98,14 +98,14 @@ export default function Dashboard() {
           <h2 className="text-base md:text-lg font-semibold">Servers</h2>
           <Link
             to="/servers"
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-accent"
+            className="text-sm text-muted hover:text-accent"
           >
             View all
           </Link>
         </div>
 
         {serversLoading ? (
-          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="text-muted">Loading...</div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {servers?.slice(0, 3).map((server) => {
@@ -139,9 +139,9 @@ export default function Dashboard() {
                   <span className="font-medium capitalize text-sm md:text-base truncate">
                     {deployment.appName}
                   </span>
-                  <ExternalLink size={14} className="text-gray-500 dark:text-gray-400 flex-shrink-0" />
+                  <ExternalLink size={14} className="text-muted flex-shrink-0" />
                 </div>
-                <div className="text-xs md:text-sm text-gray-500 dark:text-gray-400 truncate">
+                <div className="text-xs md:text-sm text-muted truncate">
                   {deployment.serverId}
                 </div>
               </a>
@@ -156,18 +156,18 @@ export default function Dashboard() {
           <h2 className="text-base md:text-lg font-semibold">All Deployments</h2>
           <Link
             to="/apps"
-            className="text-sm text-gray-500 dark:text-gray-400 hover:text-accent"
+            className="text-sm text-muted hover:text-accent"
           >
             Manage apps
           </Link>
         </div>
 
         {deploymentsLoading ? (
-          <div className="text-gray-500 dark:text-gray-400">Loading...</div>
+          <div className="text-muted">Loading...</div>
         ) : deployments?.length === 0 ? (
           <div className="card p-6 md:p-8 text-center">
             <Package size={40} className="mx-auto mb-4 text-gray-400 dark:text-gray-600" />
-            <p className="text-gray-500 dark:text-gray-400 mb-4">No apps deployed yet</p>
+            <p className="text-muted mb-4">No apps deployed yet</p>
             <Link
               to="/apps"
               className="inline-flex items-center gap-2 px-4 py-2 bg-accent hover:bg-accent/90 text-slate-900 font-medium rounded transition-colors text-sm"
@@ -178,14 +178,14 @@ export default function Dashboard() {
         ) : (
           <div className="card overflow-hidden">
             {/* Mobile: Card layout */}
-            <div className="md:hidden divide-y divide-gray-200 dark:divide-gray-700">
+            <div className="md:hidden divide-y divide-[var(--border-color)]">
               {deployments?.map((deployment) => (
                 <div key={deployment.id} className="p-3">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-medium">{deployment.appName}</span>
                     <StatusBadge status={deployment.status} size="sm" />
                   </div>
-                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center justify-between text-xs text-muted">
                     <span>{deployment.serverId}</span>
                     <span>v{deployment.version}</span>
                   </div>
@@ -197,7 +197,7 @@ export default function Dashboard() {
             <div className="hidden md:block overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="table-header border-b border-gray-200 dark:border-gray-700">
+                  <tr className="table-header border-b border-[var(--border-color)]">
                     <th className="px-4 py-3">App</th>
                     <th className="px-4 py-3">Server</th>
                     <th className="px-4 py-3">Status</th>
@@ -208,13 +208,13 @@ export default function Dashboard() {
                   {deployments?.map((deployment) => (
                     <tr key={deployment.id} className="table-row last:border-0">
                       <td className="px-4 py-3 font-medium">{deployment.appName}</td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                      <td className="px-4 py-3 text-muted">
                         {deployment.serverId}
                       </td>
                       <td className="px-4 py-3">
                         <StatusBadge status={deployment.status} size="sm" />
                       </td>
-                      <td className="px-4 py-3 text-gray-500 dark:text-gray-400">
+                      <td className="px-4 py-3 text-muted">
                         {deployment.version}
                       </td>
                     </tr>
@@ -244,10 +244,10 @@ function StatCard({
     <div className="card p-3 md:p-4">
       <div className="flex items-center gap-2 md:gap-3 mb-1 md:mb-2">
         {icon}
-        <span className="text-xs md:text-sm text-gray-500 dark:text-gray-400">{label}</span>
+        <span className="text-xs md:text-sm text-muted">{label}</span>
       </div>
       <div className="text-xl md:text-2xl font-bold">{value}</div>
-      <div className="text-xs md:text-sm text-gray-400 dark:text-gray-500">{subtext}</div>
+      <div className="text-xs md:text-sm text-muted">{subtext}</div>
     </div>
   );
 }

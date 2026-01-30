@@ -1,15 +1,69 @@
 import { useState } from 'react';
 import { useNavigate, useLocation, Link } from 'react-router-dom';
-import { Lock, User, AlertCircle, Loader2, Sun, Moon, Shield } from 'lucide-react';
+import { Lock, User, AlertCircle, Loader2, Shield } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuthStore } from '../stores/useAuthStore';
-import { useThemeStore } from '../stores/useThemeStore';
+import { NodeNetwork } from '../components/NodeNetwork';
+
+// Tokyo Night color palette
+const styles = {
+  card: {
+    background: 'rgba(26, 27, 38, 0.8)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    borderRadius: '20px',
+    border: '1px solid rgba(122, 162, 247, 0.2)',
+    padding: '48px',
+    maxWidth: '400px',
+    width: '100%',
+  },
+  input: {
+    background: 'rgba(15, 15, 23, 0.6)',
+    border: '1px solid #292e42',
+    borderRadius: '10px',
+    color: '#c0caf5',
+    padding: '12px 16px',
+    paddingLeft: '44px',
+    width: '100%',
+    fontSize: '14px',
+    outline: 'none',
+    transition: 'border-color 0.2s, box-shadow 0.2s',
+  },
+  inputFocus: {
+    borderColor: '#7aa2f7',
+    boxShadow: '0 0 0 2px rgba(122, 162, 247, 0.2)',
+  },
+  button: {
+    background: 'linear-gradient(135deg, #7aa2f7 0%, #5a82d4 100%)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: '10px',
+    padding: '14px 24px',
+    fontSize: '15px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    transition: 'transform 0.2s, box-shadow 0.2s',
+  },
+  buttonHover: {
+    transform: 'translateY(-1px)',
+    boxShadow: '0 4px 20px rgba(122, 162, 247, 0.4)',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+    cursor: 'not-allowed',
+    transform: 'none',
+  },
+};
 
 export function Login() {
   const navigate = useNavigate();
   const location = useLocation();
   const { setTokens, setUser, setError, setLoading, error, isLoading, clearError, setTotpSetupRequired } = useAuthStore();
-  const { theme, toggleTheme } = useThemeStore();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -17,6 +71,8 @@ export function Login() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [totpRequired, setTotpRequired] = useState(false);
   const [totpCode, setTotpCode] = useState('');
+  const [focusedField, setFocusedField] = useState<string | null>(null);
+  const [isButtonHovered, setIsButtonHovered] = useState(false);
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
 
@@ -102,36 +158,53 @@ export function Login() {
     clearError();
   };
 
-  return (
-    <div className="min-h-screen flex items-center justify-center px-4 bg-gray-100 dark:bg-gray-900">
-      {/* Theme toggle */}
-      <button
-        onClick={toggleTheme}
-        className="absolute top-4 right-4 p-2 rounded-lg transition-colors
-          text-gray-500 hover:text-gray-900 hover:bg-gray-200 dark:text-gray-400 dark:hover:text-white dark:hover:bg-gray-800"
-      >
-        {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
-      </button>
+  const getInputStyle = (fieldName: string) => ({
+    ...styles.input,
+    ...(focusedField === fieldName ? styles.inputFocus : {}),
+  });
 
-      <div className="max-w-md w-full">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-extrabold tracking-tight mb-2">
-            <span>&#x232C;</span><span style={{ color: '#7aa2f7' }}>w</span><span>nPrem</span>
+  const getButtonStyle = () => ({
+    ...styles.button,
+    ...(isButtonHovered && !isLoading ? styles.buttonHover : {}),
+    ...(isLoading ? styles.buttonDisabled : {}),
+  });
+
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4 relative overflow-hidden">
+      {/* Animated node network background */}
+      <NodeNetwork />
+
+      {/* Login card */}
+      <div style={styles.card} className="relative z-10">
+        {/* Logo */}
+        <div className="text-center mb-2">
+          <h1 className="text-4xl font-bold tracking-tight" style={{ color: '#c0caf5' }}>
+            <span style={{ fontFamily: 'system-ui' }}>&#x232C;</span>
+            <span style={{ color: '#7aa2f7' }}>w</span>
+            <span>nPrem</span>
           </h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {totpRequired
-              ? 'Enter verification code'
-              : isSetup
-                ? 'Create Admin Account'
-                : 'Sign in to your account'}
-          </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="card p-6 md:p-8 shadow-xl">
+        {/* Tagline */}
+        <p className="text-center mb-8" style={{ color: '#565f89', fontSize: '14px' }}>
+          {totpRequired
+            ? 'Enter verification code'
+            : isSetup
+              ? 'Create Admin Account'
+              : 'Orchestrate Everything'}
+        </p>
+
+        <form onSubmit={handleSubmit}>
           {error && (
-            <div className="mb-6 p-4 bg-red-900/50 border border-red-700 rounded-lg flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-              <p className="text-red-300 text-sm">{error}</p>
+            <div
+              className="mb-6 p-4 rounded-lg flex items-start gap-3"
+              style={{
+                background: 'rgba(244, 63, 94, 0.15)',
+                border: '1px solid rgba(244, 63, 94, 0.3)'
+              }}
+            >
+              <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" style={{ color: '#f43f5e' }} />
+              <p className="text-sm" style={{ color: '#fda4af' }}>{error}</p>
             </div>
           )}
 
@@ -139,16 +212,23 @@ export function Login() {
             // TOTP verification step
             <div className="space-y-5">
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto bg-blue-600/20 rounded-full flex items-center justify-center mb-3">
-                  <Shield className="w-6 h-6 text-blue-400" />
+                <div
+                  className="w-12 h-12 mx-auto rounded-full flex items-center justify-center mb-3"
+                  style={{ background: 'rgba(122, 162, 247, 0.2)' }}
+                >
+                  <Shield className="w-6 h-6" style={{ color: '#7aa2f7' }} />
                 </div>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-sm" style={{ color: '#565f89' }}>
                   Enter the 6-digit code from your authenticator app, or use a backup code.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="totpCode" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label
+                  htmlFor="totpCode"
+                  className="block text-sm font-medium mb-2"
+                  style={{ color: '#c0caf5' }}
+                >
                   Verification Code
                 </label>
                 <input
@@ -156,7 +236,15 @@ export function Login() {
                   type="text"
                   value={totpCode}
                   onChange={(e) => setTotpCode(e.target.value.replace(/\s/g, ''))}
-                  className="input-field text-center text-xl tracking-widest"
+                  onFocus={() => setFocusedField('totp')}
+                  onBlur={() => setFocusedField(null)}
+                  style={{
+                    ...getInputStyle('totp'),
+                    paddingLeft: '16px',
+                    textAlign: 'center',
+                    fontSize: '20px',
+                    letterSpacing: '0.2em'
+                  }}
                   placeholder="000000"
                   required
                   autoComplete="one-time-code"
@@ -168,7 +256,9 @@ export function Login() {
               <button
                 type="submit"
                 disabled={isLoading || totpCode.length < 6}
-                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+                style={getButtonStyle()}
+                onMouseEnter={() => setIsButtonHovered(true)}
+                onMouseLeave={() => setIsButtonHovered(false)}
               >
                 {isLoading ? (
                   <>
@@ -183,7 +273,8 @@ export function Login() {
               <button
                 type="button"
                 onClick={handleBackToLogin}
-                className="w-full py-2 text-sm text-gray-500 dark:text-gray-400 hover:underline"
+                className="w-full py-2 text-sm hover:underline"
+                style={{ color: '#565f89', background: 'transparent', border: 'none', cursor: 'pointer' }}
               >
                 Back to login
               </button>
@@ -192,17 +283,26 @@ export function Login() {
             // Normal login / setup form
             <div className="space-y-5">
               <div>
-                <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label
+                  htmlFor="username"
+                  className="block text-sm font-medium mb-2"
+                  style={{ color: '#c0caf5' }}
+                >
                   Username
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
+                  <User
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5"
+                    style={{ color: '#565f89' }}
+                  />
                   <input
                     id="username"
                     type="text"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
-                    className="input-field pl-10"
+                    onFocus={() => setFocusedField('username')}
+                    onBlur={() => setFocusedField(null)}
+                    style={getInputStyle('username')}
                     placeholder="Enter username"
                     required
                     autoComplete="username"
@@ -212,17 +312,26 @@ export function Login() {
               </div>
 
               <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-medium mb-2"
+                  style={{ color: '#c0caf5' }}
+                >
                   Password
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
+                  <Lock
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5"
+                    style={{ color: '#565f89' }}
+                  />
                   <input
                     id="password"
                     type="password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="input-field pl-10"
+                    onFocus={() => setFocusedField('password')}
+                    onBlur={() => setFocusedField(null)}
+                    style={getInputStyle('password')}
                     placeholder="Enter password"
                     required
                     autoComplete={isSetup ? 'new-password' : 'current-password'}
@@ -232,17 +341,26 @@ export function Login() {
 
               {isSetup && (
                 <div>
-                  <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  <label
+                    htmlFor="confirmPassword"
+                    className="block text-sm font-medium mb-2"
+                    style={{ color: '#c0caf5' }}
+                  >
                     Confirm Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" />
+                    <Lock
+                      className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5"
+                      style={{ color: '#565f89' }}
+                    />
                     <input
                       id="confirmPassword"
                       type="password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="input-field pl-10"
+                      onFocus={() => setFocusedField('confirmPassword')}
+                      onBlur={() => setFocusedField(null)}
+                      style={getInputStyle('confirmPassword')}
                       placeholder="Confirm password"
                       required
                       autoComplete="new-password"
@@ -254,7 +372,9 @@ export function Login() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center justify-center gap-2 transition-colors"
+                style={getButtonStyle()}
+                onMouseEnter={() => setIsButtonHovered(true)}
+                onMouseLeave={() => setIsButtonHovered(false)}
               >
                 {isLoading ? (
                   <>
@@ -267,7 +387,7 @@ export function Login() {
               </button>
 
               {isSetup && (
-                <p className="text-center text-sm text-gray-500 dark:text-gray-400">
+                <p className="text-center text-sm" style={{ color: '#565f89' }}>
                   This will create the initial admin account for OwnPrem.
                 </p>
               )}
@@ -275,18 +395,21 @@ export function Login() {
           )}
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-400 dark:text-gray-500">
-          Sovereign Bitcoin Infrastructure
-        </p>
-
-        <p className="mt-2 text-center">
-          <Link
-            to="/certificate"
-            className="text-sm text-blue-500 hover:text-blue-400 hover:underline"
-          >
-            Certificate setup
-          </Link>
-        </p>
+        {/* Footer links */}
+        <div className="mt-8 pt-6" style={{ borderTop: '1px solid rgba(122, 162, 247, 0.1)' }}>
+          <p className="text-center text-sm" style={{ color: '#565f89' }}>
+            Sovereign Bitcoin Infrastructure
+          </p>
+          <p className="mt-2 text-center">
+            <Link
+              to="/certificate"
+              className="text-sm hover:underline"
+              style={{ color: '#7aa2f7' }}
+            >
+              Certificate setup
+            </Link>
+          </p>
+        </div>
       </div>
     </div>
   );

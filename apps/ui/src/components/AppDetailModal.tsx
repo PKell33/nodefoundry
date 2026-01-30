@@ -57,20 +57,20 @@ export default function AppDetailModal({
       <div className="space-y-6">
         {/* Header with Icon and Name */}
         <div className="flex items-start gap-6">
-          <div className="w-24 h-24 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden flex-shrink-0">
+          <div className="w-24 h-24 rounded-2xl bg-[var(--bg-tertiary)] flex items-center justify-center overflow-hidden flex-shrink-0">
             <AppIcon appName={app.name} size={80} />
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold">{app.displayName}</h2>
-                <p className="text-gray-500 dark:text-gray-400">v{app.version}</p>
+                <p className="text-muted">v{app.version}</p>
               </div>
               {isInstalled && (
                 <StatusBadge status={deployment.status} />
               )}
             </div>
-            <p className="text-gray-500 dark:text-gray-400 mt-2">{app.description}</p>
+            <p className="text-muted mt-2">{app.description}</p>
             {groupName && (
               <div className="flex items-center gap-1 mt-2 text-sm text-gray-500">
                 <Users size={14} />
@@ -81,7 +81,7 @@ export default function AppDetailModal({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-2">
           {!isInstalled ? (
             isBlocked ? (
               <div className="flex items-center gap-2 px-4 py-2 bg-amber-900/30 border border-amber-700 text-amber-400 rounded-lg">
@@ -91,10 +91,10 @@ export default function AppDetailModal({
             ) : canManage && (
               <button
                 onClick={onInstall}
-                className="flex items-center gap-2 px-6 py-2.5 bg-accent hover:bg-accent/90 text-slate-900 font-medium rounded-lg transition-colors"
+                title="Install"
+                className="p-2.5 bg-accent hover:bg-accent/90 text-slate-900 rounded-lg transition-colors"
               >
-                <Download size={18} />
-                Install
+                <Download size={20} />
               </button>
             )
           ) : (
@@ -102,28 +102,28 @@ export default function AppDetailModal({
               {canControl && canOperate && !isRunning && (
                 <button
                   onClick={onStart}
-                  className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
+                  title="Start"
+                  className="p-2.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors"
                 >
-                  <Play size={18} />
-                  Start
+                  <Play size={20} />
                 </button>
               )}
               {canControl && canOperate && isRunning && (
                 <button
                   onClick={onStop}
-                  className="flex items-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
+                  title="Stop"
+                  className="p-2.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded-lg transition-colors"
                 >
-                  <Square size={18} />
-                  Stop
+                  <Square size={20} />
                 </button>
               )}
               {canControl && canOperate && isRunning && (
                 <button
                   onClick={onRestart}
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                  title="Restart"
+                  className="p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
                 >
-                  <RotateCw size={18} />
-                  Restart
+                  <RotateCw size={20} />
                 </button>
               )}
               {app.webui?.enabled && isRunning && (
@@ -131,46 +131,46 @@ export default function AppDetailModal({
                   href={app.webui.basePath}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
+                  title="Open Web UI"
+                  className="p-2.5 rounded-lg transition-colors bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]"
                 >
-                  <ExternalLink size={18} />
-                  Open UI
+                  <ExternalLink size={20} />
                 </a>
               )}
               {isInstalled && hasServices && canManage && (
                 <button
                   onClick={() => setShowConnectionInfo(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
+                  title="Connection Info"
+                  className="p-2.5 rounded-lg transition-colors bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]"
                 >
-                  <Link size={18} />
-                  Connection Info
+                  <Link size={20} />
                 </button>
               )}
               {isInstalled && hasEditableConfig && canManage && (
                 <button
                   onClick={() => setShowEditConfig(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
+                  title="Settings"
+                  className="p-2.5 rounded-lg transition-colors bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]"
                 >
-                  <Settings size={18} />
-                  Settings
+                  <Settings size={20} />
                 </button>
               )}
               {isInstalled && canOperate && (
                 <button
                   onClick={() => setShowLogs(true)}
-                  className="flex items-center gap-2 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-white rounded-lg transition-colors"
+                  title="View Logs"
+                  className="p-2.5 rounded-lg transition-colors bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]"
                 >
-                  <FileText size={18} />
-                  View Logs
+                  <FileText size={20} />
                 </button>
               )}
               {canControl && canManage && (
                 <button
                   onClick={onUninstall}
-                  className="flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-500 rounded-lg transition-colors ml-auto"
+                  title="Uninstall"
+                  className="p-2.5 bg-red-600/20 hover:bg-red-600/30 text-red-500 rounded-lg transition-colors ml-auto"
                 >
-                  <Trash2 size={18} />
-                  Uninstall
+                  <Trash2 size={20} />
                 </button>
               )}
             </>
@@ -178,12 +178,12 @@ export default function AppDetailModal({
         </div>
 
         {/* Details Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-[var(--border-color)]">
           {/* Source */}
           <div>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Source</h3>
+            <h3 className="text-sm font-medium text-muted mb-3">Source</h3>
             <div className="space-y-2 text-sm">
-              <div className="flex items-center gap-2 text-gray-500 dark:text-gray-400">
+              <div className="flex items-center gap-2 text-muted">
                 {app.source.type === 'binary' && <Download size={14} />}
                 {app.source.type === 'git' && <GitBranch size={14} />}
                 <span className="capitalize">{app.source.type}</span>
@@ -205,8 +205,8 @@ export default function AppDetailModal({
 
           {/* Category */}
           <div>
-            <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Category</h3>
-            <span className="inline-block px-3 py-1 bg-gray-100 dark:bg-gray-700 rounded-full text-sm capitalize">
+            <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Category</h3>
+            <span className="inline-block px-3 py-1 bg-[var(--bg-tertiary)] rounded-full text-sm capitalize">
               {app.category}
             </span>
           </div>
@@ -214,12 +214,12 @@ export default function AppDetailModal({
           {/* Services Provided */}
           {app.provides && app.provides.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Services Provided</h3>
+              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Services Provided</h3>
               <div className="space-y-2">
                 {app.provides.map((service) => (
-                  <div key={service.name} className="flex items-center justify-between text-sm bg-gray-100 dark:bg-gray-900 px-3 py-2 rounded-lg">
-                    <span className="text-gray-700 dark:text-gray-300">{service.name}</span>
-                    <span className="text-gray-500 dark:text-gray-400">:{service.port} ({service.protocol})</span>
+                  <div key={service.name} className="flex items-center justify-between text-sm bg-[var(--bg-primary)] px-3 py-2 rounded-lg">
+                    <span className="text-[var(--text-secondary)]">{service.name}</span>
+                    <span className="text-muted">:{service.port} ({service.protocol})</span>
                   </div>
                 ))}
               </div>
@@ -229,12 +229,12 @@ export default function AppDetailModal({
           {/* Dependencies */}
           {app.requires && app.requires.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Dependencies</h3>
+              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Dependencies</h3>
               <div className="space-y-2">
                 {app.requires.map((req) => (
-                  <div key={req.service} className="flex items-center justify-between text-sm bg-gray-100 dark:bg-gray-900 px-3 py-2 rounded-lg">
-                    <span className="text-gray-700 dark:text-gray-300">{req.service}</span>
-                    <span className="text-gray-500 dark:text-gray-400 text-xs">{req.locality}</span>
+                  <div key={req.service} className="flex items-center justify-between text-sm bg-[var(--bg-primary)] px-3 py-2 rounded-lg">
+                    <span className="text-[var(--text-secondary)]">{req.service}</span>
+                    <span className="text-muted text-xs">{req.locality}</span>
                   </div>
                 ))}
               </div>
@@ -244,8 +244,8 @@ export default function AppDetailModal({
           {/* Conflicts */}
           {app.conflicts && app.conflicts.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Conflicts With</h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">Only one of these can be installed at a time</p>
+              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Conflicts With</h3>
+              <p className="text-xs text-muted mb-2">Only one of these can be installed at a time</p>
               <div className="flex flex-wrap gap-2">
                 {app.conflicts.map((conflict) => (
                   <span key={conflict} className="text-xs bg-red-900/30 text-red-400 px-2 py-1 rounded">
@@ -259,8 +259,8 @@ export default function AppDetailModal({
           {/* Resources */}
           {app.resources && (app.resources.minDisk || app.resources.minMemory) && (
             <div>
-              <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">Requirements</h3>
-              <div className="flex gap-4 text-sm text-gray-500 dark:text-gray-400">
+              <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Requirements</h3>
+              <div className="flex gap-4 text-sm text-muted">
                 {app.resources.minDisk && <span>Disk: {app.resources.minDisk}</span>}
                 {app.resources.minMemory && <span>Memory: {app.resources.minMemory}</span>}
               </div>
