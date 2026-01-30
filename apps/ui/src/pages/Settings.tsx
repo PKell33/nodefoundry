@@ -3,6 +3,7 @@ import { useSystemStatus } from '../hooks/useApi';
 import { useAuthStore } from '../stores/useAuthStore';
 import { api, UserInfo, AuditLogEntry, SessionInfo, TotpStatus, Group, GroupWithMembers } from '../api/client';
 import { Plus, Trash2, User, Shield, Loader2, AlertCircle, ScrollText, ChevronLeft, ChevronRight, Filter, Monitor, Smartphone, Globe, LogOut, XCircle, Lock, Key, Copy, Check, ShieldCheck, ShieldOff, Users, UserPlus, UserMinus } from 'lucide-react';
+import Modal from '../components/Modal';
 
 export default function Settings() {
   const { data: status } = useSystemStatus();
@@ -184,130 +185,6 @@ function TwoFactorAuth() {
             <AlertCircle size={20} />
             <span>{error}</span>
           </div>
-        ) : setupData ? (
-          // Setup flow
-          <div className="space-y-4">
-            {showBackupCodes ? (
-              // Show backup codes only
-              <>
-                <div className="flex items-center gap-2 text-green-600 dark:text-green-400 mb-2">
-                  <Check size={20} />
-                  <span className="font-medium">Save Your Backup Codes</span>
-                </div>
-                <p className="text-sm text-muted mb-3">
-                  Store these codes in a safe place. Each code can only be used once.
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {setupData.backupCodes.map((code, i) => (
-                    <button
-                      key={i}
-                      onClick={() => copyToClipboard(code)}
-                      className="flex items-center justify-between px-3 py-2 font-mono text-sm rounded
-                        bg-gray-100 hover:bg-[var(--bg-tertiary)] dark:hover:bg-gray-600
-                        transition-colors"
-                    >
-                      <span>{code}</span>
-                      {copiedCode === code ? (
-                        <Check size={14} className="text-green-600 dark:text-green-400" />
-                      ) : (
-                        <Copy size={14} className="text-gray-400 dark:text-gray-500" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={cancelSetup}
-                  className="w-full mt-4 py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
-                >
-                  Done
-                </button>
-              </>
-            ) : (
-              // Full setup flow
-              <>
-                <div className="flex items-center gap-2 mb-2">
-                  <Key size={20} className="text-blue-400" />
-                  <span className="font-medium">Setup Two-Factor Authentication</span>
-                </div>
-
-                {error && (
-                  <div className="p-3 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-300 text-sm">
-                    <AlertCircle size={16} />
-                    {error}
-                  </div>
-                )}
-
-                <div className="text-sm text-muted mb-3">
-                  1. Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
-                </div>
-
-                <div className="flex justify-center p-4 rounded-lg bg-white">
-                  <img src={setupData.qrCode} alt="TOTP QR Code" className="w-48 h-48" />
-                </div>
-
-                <div className="text-sm text-muted mt-3">
-                  Or enter this code manually:
-                </div>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 p-2 font-mono text-sm rounded bg-[var(--bg-secondary)] break-all">
-                    {setupData.secret}
-                  </code>
-                  <button
-                    onClick={() => copyToClipboard(setupData.secret)}
-                    className="p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
-                  >
-                    {copiedCode === setupData.secret ? (
-                      <Check size={16} className="text-green-600 dark:text-green-400" />
-                    ) : (
-                      <Copy size={16} />
-                    )}
-                  </button>
-                </div>
-
-                <div className="text-sm text-muted mt-4">
-                  2. Enter the 6-digit code from your app to verify:
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={verifyCode}
-                    onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="000000"
-                    className="input-field text-center text-xl tracking-widest"
-                    maxLength={6}
-                  />
-                  <button
-                    onClick={handleVerify}
-                    disabled={verifying || verifyCode.length !== 6}
-                    className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
-                  >
-                    {verifying ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
-                    Verify
-                  </button>
-                </div>
-
-                <div className="border-t border-[var(--border-color)] pt-4 mt-4">
-                  <div className="text-sm text-muted mb-2">
-                    3. Save your backup codes (you'll need these if you lose access to your authenticator):
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {setupData.backupCodes.map((code, i) => (
-                      <div key={i} className="px-3 py-1 font-mono text-sm rounded bg-[var(--bg-secondary)]">
-                        {code}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  onClick={cancelSetup}
-                  className="w-full mt-4 py-2 text-sm text-muted hover:underline"
-                >
-                  Cancel
-                </button>
-              </>
-            )}
-          </div>
         ) : status?.enabled ? (
           // 2FA is enabled
           <div className="space-y-4">
@@ -347,33 +224,52 @@ function TwoFactorAuth() {
               </button>
             </div>
 
-            {showDisableForm && (
-              <div className="p-4 rounded-lg bg-[var(--bg-secondary)]/50 mt-2">
-                <div className="text-sm mb-3">Enter your password to disable two-factor authentication:</div>
+            <Modal
+              isOpen={showDisableForm}
+              onClose={() => {
+                setShowDisableForm(false);
+                setDisablePassword('');
+                setError(null);
+              }}
+              title="Disable Two-Factor Authentication"
+              size="sm"
+            >
+              <div className="space-y-4">
+                <p className="text-sm text-muted">Enter your password to disable two-factor authentication:</p>
                 {error && (
-                  <div className="mb-3 p-2 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded text-red-600 dark:text-red-300 text-sm">
+                  <div className="p-3 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded-lg text-red-600 dark:text-red-300 text-sm">
                     {error}
                   </div>
                 )}
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={disablePassword}
-                    onChange={(e) => setDisablePassword(e.target.value)}
-                    placeholder="Password"
-                    className="input-field"
-                  />
+                <input
+                  type="password"
+                  value={disablePassword}
+                  onChange={(e) => setDisablePassword(e.target.value)}
+                  placeholder="Password"
+                  className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
+                />
+                <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+                  <button
+                    onClick={() => {
+                      setShowDisableForm(false);
+                      setDisablePassword('');
+                      setError(null);
+                    }}
+                    className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                  >
+                    Cancel
+                  </button>
                   <button
                     onClick={handleDisable}
                     disabled={disabling || !disablePassword}
                     className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
                   >
                     {disabling && <Loader2 size={16} className="animate-spin" />}
-                    Disable
+                    Disable 2FA
                   </button>
                 </div>
               </div>
-            )}
+            </Modal>
           </div>
         ) : (
           // 2FA is not enabled
@@ -398,6 +294,130 @@ function TwoFactorAuth() {
           </div>
         )}
       </div>
+
+      {/* 2FA Setup Modal */}
+      <Modal
+        isOpen={!!setupData}
+        onClose={cancelSetup}
+        title={showBackupCodes ? "Save Your Backup Codes" : "Setup Two-Factor Authentication"}
+        size="lg"
+      >
+        {setupData && (
+          showBackupCodes ? (
+            <div className="space-y-4">
+              <p className="text-sm text-muted">
+                Store these codes in a safe place. Each code can only be used once.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {setupData.backupCodes.map((code, i) => (
+                  <button
+                    key={i}
+                    onClick={() => copyToClipboard(code)}
+                    className="flex items-center justify-between px-3 py-2 font-mono text-sm rounded
+                      bg-[var(--bg-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  >
+                    <span>{code}</span>
+                    {copiedCode === code ? (
+                      <Check size={14} className="text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Copy size={14} className="text-muted" />
+                    )}
+                  </button>
+                ))}
+              </div>
+              <div className="pt-4 border-t border-[var(--border-color)]">
+                <button
+                  onClick={cancelSetup}
+                  className="w-full py-2 px-4 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {error && (
+                <div className="p-3 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-300 text-sm">
+                  <AlertCircle size={16} />
+                  {error}
+                </div>
+              )}
+
+              <div>
+                <p className="text-sm text-muted mb-3">
+                  1. Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)
+                </p>
+                <div className="flex justify-center p-4 rounded-lg bg-white">
+                  <img src={setupData.qrCode} alt="TOTP QR Code" className="w-48 h-48" />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm text-muted mb-2">Or enter this code manually:</p>
+                <div className="flex items-center gap-2">
+                  <code className="flex-1 p-2 font-mono text-sm rounded bg-[var(--bg-primary)] break-all">
+                    {setupData.secret}
+                  </code>
+                  <button
+                    onClick={() => copyToClipboard(setupData.secret)}
+                    className="p-2 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
+                  >
+                    {copiedCode === setupData.secret ? (
+                      <Check size={16} className="text-green-600 dark:text-green-400" />
+                    ) : (
+                      <Copy size={16} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm text-muted mb-2">2. Enter the 6-digit code from your app to verify:</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={verifyCode}
+                    onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-center text-xl tracking-widest"
+                    maxLength={6}
+                  />
+                  <button
+                    onClick={handleVerify}
+                    disabled={verifying || verifyCode.length !== 6}
+                    className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-green-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
+                  >
+                    {verifying ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} />}
+                    Verify
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-t border-[var(--border-color)] pt-4">
+                <p className="text-sm text-muted mb-2">
+                  3. Save your backup codes (you'll need these if you lose access to your authenticator):
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {setupData.backupCodes.map((code, i) => (
+                    <div key={i} className="px-3 py-1 font-mono text-sm rounded bg-[var(--bg-primary)]">
+                      {code}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-[var(--border-color)]">
+                <button
+                  onClick={cancelSetup}
+                  className="w-full py-2 text-sm text-muted hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )
+        )}
+      </Modal>
     </section>
   );
 }
@@ -541,12 +561,17 @@ function GroupManagement() {
         </button>
       </div>
 
-      {showCreateForm && (
+      <Modal
+        isOpen={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        title="Create New Group"
+        size="md"
+      >
         <CreateGroupForm
           onSubmit={handleCreateGroup}
           onCancel={() => setShowCreateForm(false)}
         />
-      )}
+      </Modal>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Groups List */}
@@ -655,15 +680,18 @@ function GroupManagement() {
                   </button>
                 </div>
 
-                {showAddMember && nonMembers.length > 0 && (
-                  <div className="mb-3 p-3 bg-[var(--bg-secondary)]/50 rounded-lg space-y-2">
-                    <AddMemberForm
-                      users={nonMembers}
-                      onAdd={handleAddMember}
-                      onCancel={() => setShowAddMember(false)}
-                    />
-                  </div>
-                )}
+                <Modal
+                  isOpen={showAddMember && nonMembers.length > 0}
+                  onClose={() => setShowAddMember(false)}
+                  title="Add Member"
+                  size="sm"
+                >
+                  <AddMemberForm
+                    users={nonMembers}
+                    onAdd={handleAddMember}
+                    onCancel={() => setShowAddMember(false)}
+                  />
+                </Modal>
 
                 {selectedGroup.members.length === 0 ? (
                   <div className="text-sm text-gray-500 text-center py-4">No members</div>
@@ -729,46 +757,43 @@ function CreateGroupForm({ onSubmit, onCancel }: {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="card p-4 mb-4">
-      <h3 className="font-medium mb-4">Create New Group</h3>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Group Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-            placeholder="e.g., Operators"
-            required
-            minLength={2}
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Description</label>
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
-            placeholder="Optional description"
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="checkbox"
-            id="totpRequired"
-            checked={totpRequired}
-            onChange={(e) => setTotpRequired(e.target.checked)}
-            className="w-4 h-4 rounded border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-700"
-          />
-          <label htmlFor="totpRequired" className="text-sm text-[var(--text-secondary)]">
-            Require 2FA for all members
-          </label>
-        </div>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Group Name</label>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+          placeholder="e.g., Operators"
+          required
+          minLength={2}
+        />
       </div>
-      <div className="flex justify-end gap-3 mt-4">
-        <button type="button" onClick={onCancel} className="px-4 py-2 text-[var(--text-secondary)] hover:text-gray-900 dark:hover:text-white">
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Description</label>
+        <input
+          type="text"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)]"
+          placeholder="Optional description"
+        />
+      </div>
+      <div className="flex items-center gap-3">
+        <input
+          type="checkbox"
+          id="totpRequired"
+          checked={totpRequired}
+          onChange={(e) => setTotpRequired(e.target.checked)}
+          className="w-4 h-4 rounded border-gray-300 bg-white dark:border-gray-600 dark:bg-gray-700"
+        />
+        <label htmlFor="totpRequired" className="text-sm text-[var(--text-secondary)]">
+          Require 2FA for all members
+        </label>
+      </div>
+      <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+        <button type="button" onClick={onCancel} className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
           Cancel
         </button>
         <button
@@ -792,13 +817,13 @@ function AddMemberForm({ users, onAdd, onCancel }: {
   const [role, setRole] = useState<'admin' | 'operator' | 'viewer'>('viewer');
 
   return (
-    <div className="flex items-end gap-2">
-      <div className="flex-1">
-        <label className="block text-xs text-muted mb-1">User</label>
+    <div className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">User</label>
         <select
           value={selectedUser}
           onChange={(e) => setSelectedUser(e.target.value)}
-          className="w-full px-2 py-1.5 text-sm bg-[var(--bg-primary)] border border-[var(--border-color)] rounded"
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
         >
           <option value="">Select user...</option>
           {users.map(u => (
@@ -807,30 +832,32 @@ function AddMemberForm({ users, onAdd, onCancel }: {
         </select>
       </div>
       <div>
-        <label className="block text-xs text-muted mb-1">Role</label>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Role</label>
         <select
           value={role}
           onChange={(e) => setRole(e.target.value as 'admin' | 'operator' | 'viewer')}
-          className="px-2 py-1.5 text-sm bg-[var(--bg-primary)] border border-[var(--border-color)] rounded"
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
         >
           <option value="viewer">Viewer</option>
           <option value="operator">Operator</option>
           <option value="admin">Admin</option>
         </select>
       </div>
-      <button
-        onClick={() => selectedUser && onAdd(selectedUser, role)}
-        disabled={!selectedUser}
-        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded text-sm"
-      >
-        Add
-      </button>
-      <button
-        onClick={onCancel}
-        className="px-3 py-1.5 text-muted hover:text-gray-900 dark:hover:text-white text-sm"
-      >
-        Cancel
-      </button>
+      <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+        <button
+          onClick={onCancel}
+          className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => selectedUser && onAdd(selectedUser, role)}
+          disabled={!selectedUser}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium"
+        >
+          Add Member
+        </button>
+      </div>
     </div>
   );
 }
@@ -906,12 +933,17 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
         </button>
       </div>
 
-      {showCreateForm && (
+      <Modal
+        isOpen={showCreateForm}
+        onClose={() => setShowCreateForm(false)}
+        title="Create New User"
+        size="md"
+      >
         <CreateUserForm
           onSuccess={handleUserCreated}
           onCancel={() => setShowCreateForm(false)}
         />
-      )}
+      </Modal>
 
       <div className="card overflow-hidden">
         {loading ? (
@@ -1038,6 +1070,8 @@ function SessionManagement() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [confirmRevokeAll, setConfirmRevokeAll] = useState(false);
+  const [confirmRevokeSession, setConfirmRevokeSession] = useState<string | null>(null);
 
   const fetchSessions = async () => {
     try {
@@ -1062,12 +1096,9 @@ function SessionManagement() {
   }, []);
 
   const handleRevokeSession = async (sessionId: string) => {
-    if (!confirm('Are you sure you want to end this session?')) {
-      return;
-    }
-
     try {
       setRevoking(sessionId);
+      setConfirmRevokeSession(null);
       await api.revokeSession(sessionId);
       setSessions(sessions.filter(s => s.id !== sessionId));
     } catch (err) {
@@ -1079,16 +1110,12 @@ function SessionManagement() {
 
   const handleRevokeOthers = async () => {
     if (!refreshToken) {
-      alert('Current session token not available');
-      return;
-    }
-
-    if (!confirm('Are you sure you want to end all other sessions?')) {
       return;
     }
 
     try {
       setRevoking('all');
+      setConfirmRevokeAll(false);
       const result = await api.revokeOtherSessions(refreshToken);
       if (result.revokedCount > 0) {
         setSessions(sessions.filter(s => s.isCurrent));
@@ -1165,9 +1192,9 @@ function SessionManagement() {
         </div>
         {otherSessionsCount > 0 && (
           <button
-            onClick={handleRevokeOthers}
+            onClick={() => setConfirmRevokeAll(true)}
             disabled={revoking !== null}
-            className="flex items-center gap-2 px-3 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-600/20 dark:hover:bg-red-600/30 text-red-400 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             <LogOut size={16} />
             End All Other Sessions
@@ -1224,9 +1251,9 @@ function SessionManagement() {
                     </div>
                     {!session.isCurrent && (
                       <button
-                        onClick={() => handleRevokeSession(session.id)}
+                        onClick={() => setConfirmRevokeSession(session.id)}
                         disabled={revoking === session.id}
-                        className="p-2 text-muted hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+                        className="p-2 text-muted hover:text-red-500 hover:bg-[var(--bg-tertiary)] rounded transition-colors disabled:opacity-50"
                         title="End session"
                       >
                         {revoking === session.id ? (
@@ -1243,6 +1270,64 @@ function SessionManagement() {
           </div>
         )}
       </div>
+
+      {/* Confirm End All Sessions Modal */}
+      <Modal
+        isOpen={confirmRevokeAll}
+        onClose={() => setConfirmRevokeAll(false)}
+        title="End All Other Sessions"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-muted">
+            Are you sure you want to end all other sessions? You will remain logged in on this device only.
+          </p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+            <button
+              onClick={() => setConfirmRevokeAll(false)}
+              className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleRevokeOthers}
+              disabled={revoking === 'all'}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
+            >
+              {revoking === 'all' && <Loader2 size={16} className="animate-spin" />}
+              End Sessions
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Confirm End Single Session Modal */}
+      <Modal
+        isOpen={!!confirmRevokeSession}
+        onClose={() => setConfirmRevokeSession(null)}
+        title="End Session"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-muted">
+            Are you sure you want to end this session? The user will be logged out on that device.
+          </p>
+          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+            <button
+              onClick={() => setConfirmRevokeSession(null)}
+              className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => confirmRevokeSession && handleRevokeSession(confirmRevokeSession)}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+            >
+              End Session
+            </button>
+          </div>
+        </div>
+      </Modal>
     </section>
   );
 }
@@ -1276,63 +1361,59 @@ function CreateUserForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="card p-4 mb-4">
-      <h3 className="font-medium mb-4">Create New User</h3>
-
+    <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-300 text-sm">
+        <div className="p-3 bg-red-50 border border-red-200 dark:bg-red-900/50 dark:border-red-700 rounded-lg flex items-center gap-2 text-red-600 dark:text-red-300 text-sm">
           <AlertCircle size={16} />
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Username</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="username"
-            required
-            minLength={3}
-            pattern="^[a-zA-Z0-9_-]+$"
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="min 8 characters"
-            required
-            minLength={8}
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Role</label>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as 'admin' | 'operator' | 'viewer')}
-            className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="viewer">Viewer (read only)</option>
-            <option value="operator">Operator (start/stop)</option>
-            <option value="admin">Admin (full access)</option>
-          </select>
-        </div>
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Username</label>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="username"
+          required
+          minLength={3}
+          pattern="^[a-zA-Z0-9_-]+$"
+        />
       </div>
 
-      <div className="flex justify-end gap-3 mt-4">
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Password</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          placeholder="min 8 characters"
+          required
+          minLength={8}
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1">Role</label>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as 'admin' | 'operator' | 'viewer')}
+          className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="viewer">Viewer (read only)</option>
+          <option value="operator">Operator (start/stop)</option>
+          <option value="admin">Admin (full access)</option>
+        </select>
+      </div>
+
+      <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
         <button
           type="button"
           onClick={onCancel}
-          className="px-4 py-2 text-[var(--text-secondary)] hover:text-gray-900 dark:hover:text-white transition-colors"
+          className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
         >
           Cancel
         </button>
@@ -1438,7 +1519,7 @@ function AuditLog() {
               setSelectedAction(e.target.value);
               setOffset(0);
             }}
-            className="px-3 py-1.5 bg-white border border-blue-600 text-blue-600 dark:bg-gray-700 dark:border-gray-600 dark:text-white rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 bg-[var(--bg-secondary)] border border-[var(--border-color)] text-[var(--text-primary)] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All actions</option>
             {actions.map(action => (
