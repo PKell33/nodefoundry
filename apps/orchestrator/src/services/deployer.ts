@@ -7,7 +7,7 @@ import { serviceRegistry } from './serviceRegistry.js';
 import { dependencyResolver } from './dependencyResolver.js';
 import { proxyManager } from './proxyManager.js';
 import { caddyHAManager } from './caddyHAManager.js';
-import { sendCommand, isAgentConnected } from '../websocket/agentHandler.js';
+import { sendCommand, sendCommandAndWait, isAgentConnected } from '../websocket/agentHandler.js';
 import { mutexManager } from '../lib/mutexManager.js';
 import logger from '../lib/logger.js';
 import { auditService } from './auditService.js';
@@ -260,23 +260,35 @@ export class Deployer {
         env[key.toUpperCase()] = value;
       }
 
-      // Step 2: Send install command to agent
+      // Step 2: Send install command to agent and wait for completion
+      // We must await this to ensure install succeeds before registering routes,
+      // otherwise a failed install would leave orphaned proxy routes
       const commandId = uuidv4();
-      const sent = sendCommand(serverId, {
-        id: commandId,
-        action: 'install',
-        appName,
-        payload: {
-          version: appVersion,
-          files: configFiles,
-          env,
-          metadata,
-        },
-      }, deploymentId);
+      logger.info({ deploymentId, appName, serverId }, 'Sending install command to agent');
 
-      if (!sent) {
-        throw new Error(`Failed to send install command to ${serverId}`);
+      let installResult;
+      try {
+        installResult = await sendCommandAndWait(serverId, {
+          id: commandId,
+          action: 'install',
+          appName,
+          payload: {
+            version: appVersion,
+            files: configFiles,
+            env,
+            metadata,
+          },
+        }, deploymentId);
+      } catch (err) {
+        // Agent disconnected or command failed
+        throw new Error(`Install command failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+
+      if (installResult.status !== 'success') {
+        throw new Error(`Install failed on agent: ${installResult.message || 'Unknown error'}`);
+      }
+
+      logger.info({ deploymentId, appName }, 'Install command completed successfully');
 
       // Step 3: Register services and their proxy routes
       const registeredServiceIds: string[] = [];
@@ -399,14 +411,23 @@ export class Deployer {
     }
 
     const db = getDb();
-    db.prepare(`
-      UPDATE deployments SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `).run(deploymentId);
 
     // Enable proxy routes (web UI and service routes) and reload Caddy
     await proxyManager.setRouteActive(deploymentId, true);
     await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, true);
-    await proxyManager.updateAndReload();
+    const caddySuccess = await proxyManager.updateAndReload();
+
+    if (!caddySuccess) {
+      // Revert route state on Caddy failure
+      await proxyManager.setRouteActive(deploymentId, false);
+      await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, false);
+      logger.error({ deploymentId }, 'Failed to update Caddy configuration during start');
+      throw new Error('Failed to update proxy configuration. App may not be accessible.');
+    }
+
+    db.prepare(`
+      UPDATE deployments SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?
+    `).run(deploymentId);
 
     // Send start command
     const commandId = uuidv4();
@@ -444,7 +465,13 @@ export class Deployer {
     // Disable proxy routes (web UI and service routes) and reload Caddy
     await proxyManager.setRouteActive(deploymentId, false);
     await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, false);
-    await proxyManager.updateAndReload();
+    const caddySuccess = await proxyManager.updateAndReload();
+
+    if (!caddySuccess) {
+      // Log warning but don't fail stop - stopping the app is more important
+      // The route will be disabled in DB even if Caddy didn't reload
+      logger.warn({ deploymentId }, 'Failed to update Caddy configuration during stop. Routes may remain active until next reload.');
+    }
 
     // Send stop command
     const commandId = uuidv4();

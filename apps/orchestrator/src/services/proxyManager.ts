@@ -76,6 +76,11 @@ export class ProxyManager {
   private domain: string;
   private caddyAdminUrl: string;
   private lastConfigHash: string | null = null;
+  // Store the last successfully applied config for recovery
+  private lastGoodConfig: object | null = null;
+  // Track consecutive failures for circuit breaker pattern
+  private consecutiveFailures: number = 0;
+  private static readonly MAX_CONSECUTIVE_FAILURES = 3;
 
   constructor(
     apiPort: number = config.port,
@@ -341,6 +346,14 @@ export class ProxyManager {
       return true;
     }
 
+    // Circuit breaker: if we've had too many consecutive failures, skip this update
+    if (this.consecutiveFailures >= ProxyManager.MAX_CONSECUTIVE_FAILURES) {
+      logger.warn({
+        consecutiveFailures: this.consecutiveFailures,
+      }, 'Caddy config update skipped - too many consecutive failures. Call resetCaddyState() to retry.');
+      return false;
+    }
+
     try {
       await withRetry(
         async () => {
@@ -381,13 +394,86 @@ export class ProxyManager {
         }
       );
 
+      // Success - update tracking state
       this.lastConfigHash = configHash;
+      this.lastGoodConfig = caddyConfig;
+      this.consecutiveFailures = 0;
       logger.info('Caddy config updated via Admin API');
       return true;
     } catch (err) {
-      logger.error({ err }, 'Failed to update Caddy config after retries');
+      this.consecutiveFailures++;
+      const error = err as Error & { status?: number };
+
+      // If this is a 4xx error (invalid config) and we have a last good config, try to restore it
+      if (error.status && error.status >= 400 && error.status < 500 && this.lastGoodConfig) {
+        logger.warn({ err, consecutiveFailures: this.consecutiveFailures },
+          'Caddy rejected config, attempting to restore last known good config');
+
+        const restored = await this.restoreLastGoodConfig();
+        if (restored) {
+          logger.info('Successfully restored last known good Caddy config');
+        } else {
+          logger.error('Failed to restore last known good Caddy config');
+        }
+      }
+
+      logger.error({ err, consecutiveFailures: this.consecutiveFailures },
+        'Failed to update Caddy config after retries');
       return false;
     }
+  }
+
+  /**
+   * Attempt to restore the last known good Caddy configuration.
+   * Returns true if successful, false otherwise.
+   */
+  private async restoreLastGoodConfig(): Promise<boolean> {
+    if (!this.lastGoodConfig) {
+      logger.warn('No last known good config to restore');
+      return false;
+    }
+
+    try {
+      const response = await fetch(`${this.caddyAdminUrl}/load`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.lastGoodConfig),
+      });
+
+      if (response.ok) {
+        // Restore the hash to match
+        const configJson = JSON.stringify(this.lastGoodConfig);
+        this.lastConfigHash = createHash('sha256').update(configJson).digest('hex');
+        return true;
+      }
+
+      logger.error({ status: response.status }, 'Failed to restore last good config');
+      return false;
+    } catch (err) {
+      logger.error({ err }, 'Error restoring last good config');
+      return false;
+    }
+  }
+
+  /**
+   * Reset the Caddy state to allow retrying after failures.
+   * Call this after fixing the underlying issue causing config failures.
+   */
+  resetCaddyState(): void {
+    this.consecutiveFailures = 0;
+    this.lastConfigHash = null;
+    logger.info('Caddy state reset - next updateAndReload will apply config');
+  }
+
+  /**
+   * Get the current Caddy integration status.
+   */
+  getCaddyStatus(): { consecutiveFailures: number; hasLastGoodConfig: boolean; isCircuitOpen: boolean } {
+    return {
+      consecutiveFailures: this.consecutiveFailures,
+      hasLastGoodConfig: this.lastGoodConfig !== null,
+      isCircuitOpen: this.consecutiveFailures >= ProxyManager.MAX_CONSECUTIVE_FAILURES,
+    };
   }
 
   private async generateCaddyJsonConfig(routes: ProxyRoute[], serviceRoutes: ServiceRoute[]): Promise<object> {

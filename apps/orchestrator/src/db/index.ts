@@ -9,6 +9,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let db: Database.Database | null = null;
 
+// Retry configuration for SQLITE_BUSY errors
+const BUSY_RETRY_MAX_ATTEMPTS = 5;
+const BUSY_RETRY_BASE_DELAY_MS = 50;
+const BUSY_TIMEOUT_MS = 5000; // 5 seconds busy timeout
+
 export function getDb(): Database.Database {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() first.');
@@ -23,6 +28,10 @@ export function initDb(): Database.Database {
   }
 
   db = new Database(config.database.path);
+
+  // Set busy timeout to 5 seconds (default is 1 second)
+  // This helps with concurrent access in WAL mode
+  db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
 
@@ -109,4 +118,79 @@ export function closeDb(): void {
 export function runInTransaction<T>(fn: () => T): T {
   const database = getDb();
   return database.transaction(fn)();
+}
+
+/**
+ * Check if an error is a SQLITE_BUSY error.
+ */
+function isBusyError(error: unknown): boolean {
+  if (error instanceof Error) {
+    return error.message.includes('SQLITE_BUSY') || error.message.includes('database is locked');
+  }
+  return false;
+}
+
+/**
+ * Run a database operation with retry logic for SQLITE_BUSY errors.
+ * Use this for critical operations that might fail under high concurrency.
+ *
+ * @param fn - The function to run (can be sync or async)
+ * @param maxAttempts - Maximum number of retry attempts (default: 5)
+ * @returns The return value of the function
+ */
+export async function withBusyRetry<T>(
+  fn: () => T | Promise<T>,
+  maxAttempts: number = BUSY_RETRY_MAX_ATTEMPTS
+): Promise<T> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (isBusyError(error) && attempt < maxAttempts) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // Exponential backoff with jitter
+        const delay = BUSY_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1) + Math.random() * 50;
+        dbLogger.warn({ attempt, maxAttempts, delay }, 'Database busy, retrying');
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Database operation failed after retries');
+}
+
+/**
+ * Synchronous version of withBusyRetry for use in sync contexts.
+ * Note: Uses busy-wait instead of setTimeout.
+ */
+export function withBusyRetrySync<T>(
+  fn: () => T,
+  maxAttempts: number = BUSY_RETRY_MAX_ATTEMPTS
+): T {
+  let lastError: Error | null = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return fn();
+    } catch (error) {
+      if (isBusyError(error) && attempt < maxAttempts) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        // Synchronous delay using busy-wait (not ideal but necessary for sync)
+        const delay = BUSY_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+        const start = Date.now();
+        while (Date.now() - start < delay) {
+          // busy-wait
+        }
+        dbLogger.warn({ attempt, maxAttempts, delay }, 'Database busy (sync), retrying');
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  throw lastError || new Error('Database operation failed after retries');
 }

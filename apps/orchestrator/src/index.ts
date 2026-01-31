@@ -6,6 +6,7 @@ import { createWebSocket, shutdownWebSocket } from './websocket/index.js';
 import { secretsManager } from './services/secretsManager.js';
 import { proxyManager } from './services/proxyManager.js';
 import { systemAppsService } from './services/systemAppsService.js';
+import { deploymentHealthService } from './services/deploymentHealthService.js';
 import { startSessionCleanup, stopSessionCleanup } from './jobs/sessionCleanup.js';
 import { startMountStatusChecker, stopMountStatusChecker } from './jobs/mountStatusChecker.js';
 import { startCertRenewal, stopCertRenewal } from './jobs/certRenewal.js';
@@ -52,6 +53,9 @@ async function main(): Promise<void> {
   startMountStatusChecker();
   startCertRenewal();
 
+  // Start deployment health monitor (detects and recovers stuck deployments)
+  deploymentHealthService.start();
+
   // Start system apps monitor (installs mandatory apps when core agent connects)
   systemAppsService.start();
 
@@ -90,6 +94,7 @@ async function main(): Promise<void> {
       stopSessionCleanup();
       stopMountStatusChecker();
       stopCertRenewal();
+      deploymentHealthService.stop();
       systemAppsService.stop();
       logger.info('Background jobs stopped');
 

@@ -61,17 +61,28 @@ export async function handleCommandResult(io: SocketServer, serverId: string, re
     }
   }
 
-  // Get command info to update deployment status (read before acquiring mutex)
-  const commandRow = db.prepare('SELECT deployment_id, action FROM command_log WHERE id = ?').get(result.commandId) as { deployment_id: string | null; action: string } | undefined;
+  // Get command info to check if already timed out
+  const commandRow = db.prepare('SELECT deployment_id, action, status FROM command_log WHERE id = ?').get(result.commandId) as { deployment_id: string | null; action: string; status: string } | undefined;
 
-  // Update command log (no mutex needed - single command update)
+  // If command was already timed out, don't overwrite the timeout status
+  // This prevents race conditions where late results overwrite error states
+  if (commandRow?.status === 'timeout') {
+    wsLogger.warn({
+      commandId: result.commandId,
+      serverId,
+      status: result.status,
+    }, 'Ignoring late command result for timed-out command');
+    return;
+  }
+
+  // Update command log only if not already in terminal state
   db.prepare(`
     UPDATE command_log SET status = ?, result_message = ?, completed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
+    WHERE id = ? AND status NOT IN ('timeout', 'error', 'success')
   `).run(result.status, result.message || null, result.commandId);
 
-  // Update deployment status with mutex protection
-  if (commandRow?.deployment_id) {
+  // Update deployment status with mutex protection (only if command was pending)
+  if (pending && commandRow?.deployment_id) {
     await mutexManager.withDeploymentLock(commandRow.deployment_id, async () => {
       const newStatus = getDeploymentStatusFromCommand(commandRow.action, result.status);
       if (newStatus) {
@@ -184,8 +195,11 @@ export function handleCommandAck(serverId: string, ack: CommandAck): void {
 
 /**
  * Clean up pending commands for a server (e.g., on disconnect).
+ * Updates both command_log and deployment status to 'error'.
  */
 export function cleanupPendingCommandsForServer(serverId: string): void {
+  const db = getDb();
+
   for (const [commandId, pending] of pendingCommands) {
     if (pending.serverId === serverId) {
       clearTimeout(pending.ackTimeout);
@@ -196,11 +210,23 @@ export function cleanupPendingCommandsForServer(serverId: string): void {
       pending.reject(new Error('Agent disconnected'));
 
       // Update command log
-      const db = getDb();
       db.prepare(`
         UPDATE command_log SET status = 'error', result_message = 'Agent disconnected', completed_at = CURRENT_TIMESTAMP
         WHERE id = ? AND status = 'pending'
       `).run(commandId);
+
+      // Also update deployment status if this command was for a deployment
+      if (pending.deploymentId) {
+        db.prepare(`
+          UPDATE deployments SET status = 'error', status_message = 'Agent disconnected during ${pending.action}', updated_at = CURRENT_TIMESTAMP
+          WHERE id = ? AND status IN ('installing', 'configuring', 'uninstalling')
+        `).run(pending.deploymentId);
+        wsLogger.warn({
+          commandId,
+          deploymentId: pending.deploymentId,
+          action: pending.action,
+        }, 'Deployment marked as error due to agent disconnect');
+      }
     }
   }
 }
@@ -278,16 +304,25 @@ export function sendCommand(
 /**
  * Send a command and wait for the result.
  * Returns a promise that resolves with the command result.
+ * Logs the command to command_log for audit trail.
  */
 export function sendCommandWithResult(
   serverId: string,
   command: { id: string; action: string; appName: string; payload?: unknown },
-  getAgentSocket: (serverId: string) => Socket | undefined
+  getAgentSocket: (serverId: string) => Socket | undefined,
+  deploymentId?: string
 ): Promise<CommandResult> {
   const agentSocket = getAgentSocket(serverId);
   if (!agentSocket) {
     return Promise.reject(new Error(`Agent not connected: ${serverId}`));
   }
+
+  // Log the command for audit trail
+  const db = getDb();
+  db.prepare(`
+    INSERT INTO command_log (id, server_id, deployment_id, action, payload, status, created_at)
+    VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+  `).run(command.id, serverId, deploymentId || null, command.action, JSON.stringify({ appName: command.appName, ...(command.payload || {}) }));
 
   return new Promise((resolve, reject) => {
     // Set up ack timeout
@@ -295,6 +330,21 @@ export function sendCommandWithResult(
       const pending = pendingCommands.get(command.id);
       if (pending && !pending.acknowledged) {
         pendingCommands.delete(command.id);
+
+        // Update command log to timeout status
+        db.prepare(`
+          UPDATE command_log SET status = 'timeout', result_message = 'Agent did not acknowledge command', completed_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(command.id);
+
+        // Update deployment status if applicable
+        if (deploymentId) {
+          db.prepare(`
+            UPDATE deployments SET status = 'error', status_message = 'Agent did not acknowledge command', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+          `).run(deploymentId);
+        }
+
         reject(new Error('Agent did not acknowledge command'));
       }
     }, ACK_TIMEOUT);
@@ -305,13 +355,13 @@ export function sendCommandWithResult(
       reject,
       ackTimeout,
       acknowledged: false,
-      deploymentId: undefined,
+      deploymentId,
       action: command.action,
       serverId,
     });
 
     agentSocket.emit('command', command);
-    wsLogger.info({ serverId, action: command.action, commandId: command.id }, 'Command sent (awaiting result)');
+    wsLogger.info({ serverId, action: command.action, commandId: command.id, deploymentId }, 'Command sent (awaiting result)');
   });
 }
 

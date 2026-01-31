@@ -33,6 +33,9 @@ const APP_NAME_PATTERN = /^[a-zA-Z0-9_.-]+$/;
 // Maximum log lines to return
 const MAX_LOG_LINES = 1000;
 
+// Script execution timeout (8 minutes - gives buffer before 10-minute command timeout)
+const SCRIPT_TIMEOUT_MS = 8 * 60 * 1000;
+
 // Mount point validation: must be absolute path with allowed characters
 const MOUNT_POINT_PATTERN = /^\/[a-zA-Z0-9/_-]+$/;
 
@@ -591,11 +594,25 @@ export class Executor {
 
     if (action === 'start') {
       if (existsSync(startScript)) {
-        // Run start.sh in background
+        // Check if already running
+        const existingProc = this.runningProcesses.get(service);
+        if (existingProc && existingProc.pid) {
+          try {
+            // Check if process is still alive (kill with signal 0 just checks)
+            process.kill(existingProc.pid, 0);
+            executorLogger.info(`${service} already running (pid: ${existingProc.pid})`);
+            return;
+          } catch {
+            // Process not running, clean up stale entry
+            this.runningProcesses.delete(service);
+          }
+        }
+
+        // Run start.sh in background with new process group
         const proc = spawn('bash', [startScript], {
           cwd: appDir,
           stdio: ['ignore', 'pipe', 'pipe'],
-          detached: true,
+          detached: true, // Creates new process group with PGID = PID
           env: {
             ...process.env,
             APP_DIR: appDir,
@@ -606,9 +623,21 @@ export class Executor {
         proc.stdout?.on('data', (data) => executorLogger.info(`[${service}] ${data.toString().trim()}`));
         proc.stderr?.on('data', (data) => executorLogger.error(`[${service}] ${data.toString().trim()}`));
 
+        // Track the process and handle unexpected termination
         this.runningProcesses.set(service, proc);
+
+        proc.on('exit', (code, signal) => {
+          // Clean up tracking when process exits
+          if (this.runningProcesses.get(service) === proc) {
+            this.runningProcesses.delete(service);
+            if (code !== 0 && code !== null) {
+              executorLogger.warn({ service, code, signal }, 'Dev mode process exited unexpectedly');
+            }
+          }
+        });
+
         proc.unref();
-        executorLogger.info(`Started ${service} in dev mode (pid: ${proc.pid})`);
+        executorLogger.info(`Started ${service} in dev mode (pid: ${proc.pid}, pgid: ${proc.pid})`);
       } else {
         throw new Error(`No start.sh found for ${service} in dev mode`);
       }
@@ -629,14 +658,11 @@ export class Executor {
           executorLogger.error(`stop.sh failed: ${result.stderr?.toString()}`);
         }
       }
-      // Also clean up tracked process
+
+      // Kill the entire process group to ensure all children are terminated
       const proc = this.runningProcesses.get(service);
       if (proc && proc.pid) {
-        try {
-          process.kill(-proc.pid, 'SIGTERM');
-        } catch {
-          try { process.kill(proc.pid, 'SIGTERM'); } catch { /* ignore */ }
-        }
+        this.killProcessGroup(proc.pid, service);
         this.runningProcesses.delete(service);
       }
       executorLogger.info(`Stopped ${service} in dev mode`);
@@ -644,6 +670,48 @@ export class Executor {
       await this.systemctl('stop', service);
       await this.systemctl('start', service);
     }
+  }
+
+  /**
+   * Kill a process group with escalating signals.
+   * First tries SIGTERM, then SIGKILL if process doesn't exit.
+   */
+  private killProcessGroup(pid: number, service: string): void {
+    // Try to kill the process group (negative PID)
+    try {
+      process.kill(-pid, 'SIGTERM');
+      executorLogger.debug({ service, pid }, 'Sent SIGTERM to process group');
+    } catch (err) {
+      // Process group might not exist, try individual process
+      try {
+        process.kill(pid, 'SIGTERM');
+        executorLogger.debug({ service, pid }, 'Sent SIGTERM to process');
+      } catch {
+        // Process already dead
+        return;
+      }
+    }
+
+    // Give process time to clean up, then force kill if needed
+    setTimeout(() => {
+      try {
+        // Check if still alive
+        process.kill(pid, 0);
+        // Still alive, force kill
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // Already dead
+          }
+        }
+        executorLogger.warn({ service, pid }, 'Process did not respond to SIGTERM, sent SIGKILL');
+      } catch {
+        // Process is dead, good
+      }
+    }, 3000);
   }
 
   private runSystemctl(action: string, service: string): Promise<void> {
@@ -759,7 +827,11 @@ export class Executor {
     executorLogger.info(`Wrote file: ${safePath}`);
   }
 
-  private async runScript(script: string, env: Record<string, string | undefined>): Promise<void> {
+  private async runScript(
+    script: string,
+    env: Record<string, string | undefined>,
+    timeoutMs: number = SCRIPT_TIMEOUT_MS
+  ): Promise<void> {
     // Validate script path to prevent path traversal
     const safeScript = this.validatePath(script);
 
@@ -769,23 +841,57 @@ export class Executor {
     }
 
     return new Promise((resolve, reject) => {
-      executorLogger.info(`Running script: ${safeScript}`);
+      executorLogger.info({ script: safeScript, timeoutMs }, 'Running script');
 
       const proc = spawn('bash', [safeScript], {
         stdio: 'inherit',
         env: env as NodeJS.ProcessEnv,
       });
 
+      let timedOut = false;
+      let timeoutHandle: NodeJS.Timeout | undefined;
+
+      // Set up timeout
+      if (timeoutMs > 0) {
+        timeoutHandle = setTimeout(() => {
+          timedOut = true;
+          executorLogger.error({ script: safeScript, timeoutMs }, 'Script execution timed out, killing process');
+
+          // Try graceful shutdown first
+          proc.kill('SIGTERM');
+
+          // Force kill after 5 seconds if still running
+          setTimeout(() => {
+            if (!proc.killed) {
+              executorLogger.warn({ script: safeScript }, 'Script did not respond to SIGTERM, sending SIGKILL');
+              proc.kill('SIGKILL');
+            }
+          }, 5000);
+        }, timeoutMs);
+      }
+
+      const cleanup = () => {
+        if (timeoutHandle) {
+          clearTimeout(timeoutHandle);
+        }
+      };
+
       proc.on('close', (code) => {
-        if (code === 0) {
-          executorLogger.info(`Script completed: ${safeScript}`);
+        cleanup();
+        if (timedOut) {
+          reject(new Error(`Script ${safeScript} timed out after ${timeoutMs}ms`));
+        } else if (code === 0) {
+          executorLogger.info({ script: safeScript }, 'Script completed');
           resolve();
         } else {
           reject(new Error(`Script ${safeScript} failed with code ${code}`));
         }
       });
 
-      proc.on('error', reject);
+      proc.on('error', (err) => {
+        cleanup();
+        reject(err);
+      });
     });
   }
 
@@ -1500,5 +1606,36 @@ export class Executor {
    */
   getActiveStreamCount(): number {
     return this.activeLogStreams.size;
+  }
+
+  /**
+   * Stop all running dev mode processes.
+   * Called during agent shutdown to prevent zombie processes.
+   */
+  stopAllDevProcesses(): void {
+    for (const [service, proc] of this.runningProcesses) {
+      if (proc.pid) {
+        executorLogger.info({ service, pid: proc.pid }, 'Stopping dev mode process during cleanup');
+        this.killProcessGroup(proc.pid, service);
+      }
+    }
+    this.runningProcesses.clear();
+  }
+
+  /**
+   * Full cleanup for agent shutdown.
+   * Stops all log streams and dev mode processes.
+   */
+  cleanup(): void {
+    executorLogger.info('Cleaning up executor resources');
+    this.stopAllLogStreams();
+    this.stopAllDevProcesses();
+  }
+
+  /**
+   * Get count of running dev mode processes (for monitoring)
+   */
+  getRunningProcessCount(): number {
+    return this.runningProcesses.size;
   }
 }

@@ -28,6 +28,7 @@ import {
   handleCommandAck,
   cleanupPendingCommandsForServer,
   sendCommand as sendCommandInternal,
+  sendCommandWithResult as sendCommandWithResultInternal,
   getPendingCommandCount,
   abortPendingCommands,
   hasPendingCommands,
@@ -502,6 +503,19 @@ export function sendCommand(
   deploymentId?: string
 ): boolean {
   return sendCommandInternal(serverId, command, deploymentId, getAgentSocket);
+}
+
+/**
+ * Send a command and wait for the result.
+ * Unlike sendCommand, this returns a promise that resolves when the command completes.
+ * Use this for operations where you need to know the result before proceeding.
+ */
+export function sendCommandAndWait(
+  serverId: string,
+  command: { id: string; action: string; appName: string; payload?: unknown },
+  deploymentId?: string
+): Promise<import('@ownprem/shared').CommandResult> {
+  return sendCommandWithResultInternal(serverId, command, getAgentSocket, deploymentId);
 }
 
 export function sendMountCommand(
