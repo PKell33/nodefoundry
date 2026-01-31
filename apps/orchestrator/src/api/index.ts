@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { randomUUID } from 'crypto';
 import authRouter from './routes/auth.js';
 import serversRouter from './routes/servers.js';
@@ -103,10 +103,10 @@ export function createApi(): express.Application {
       return req.method !== 'POST';
     },
     // Use IP + username combination to prevent distributed brute force
-    keyGenerator: (req, res) => {
+    keyGenerator: (req) => {
       const username = req.body?.username || 'anonymous';
-      // Use the built-in key generator for proper IPv6 handling, then append username
-      const ipKey = rateLimit.ipKeyGenerator(req, res);
+      // Use the helper for proper IPv6 handling, then append username
+      const ipKey = ipKeyGenerator(req.ip || '');
       return `${ipKey}:${username}`;
     },
   });
@@ -126,9 +126,9 @@ export function createApi(): express.Application {
     skip: () => config.isDevelopment,
     // Only count failed attempts (success resets via skipSuccessfulRequests)
     skipSuccessfulRequests: true,
-    keyGenerator: (req, res) => {
+    keyGenerator: (req) => {
       const username = req.body?.username || 'anonymous';
-      const ipKey = rateLimit.ipKeyGenerator(req, res);
+      const ipKey = ipKeyGenerator(req.ip || '');
       return `login:${ipKey}:${username}`;
     },
   });

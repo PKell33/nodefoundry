@@ -165,10 +165,12 @@ describe('API Endpoints', () => {
       expect(res.body.user).toBeDefined();
       expect(res.body.user.username).toBe('logintest');
       // Tokens are now set via httpOnly cookies, not in response body
-      const cookies = res.headers['set-cookie'];
-      expect(cookies).toBeDefined();
-      expect(cookies.some((c: string) => c.startsWith('access_token='))).toBe(true);
-      expect(cookies.some((c: string) => c.startsWith('refresh_token='))).toBe(true);
+      const cookieHeader = res.headers['set-cookie'];
+      expect(cookieHeader).toBeDefined();
+      // set-cookie can be string or string[] depending on number of cookies
+      const cookies = Array.isArray(cookieHeader) ? cookieHeader : [cookieHeader];
+      expect(cookies.some((c) => c.startsWith('access_token='))).toBe(true);
+      expect(cookies.some((c) => c.startsWith('refresh_token='))).toBe(true);
     });
 
     it('POST /api/auth/login should reject invalid credentials', async () => {
