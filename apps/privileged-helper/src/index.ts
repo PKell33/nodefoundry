@@ -12,7 +12,7 @@
  */
 
 import { createServer, Socket } from 'net';
-import { unlinkSync, existsSync, mkdirSync, chownSync } from 'fs';
+import { unlinkSync, existsSync, mkdirSync, chownSync, lstatSync, statSync } from 'fs';
 import { spawnSync } from 'child_process';
 import { validateRequest, ValidationError } from './validator.js';
 import { executeRequest } from './executor.js';
@@ -20,6 +20,7 @@ import type { HelperRequest, HelperResponse } from './types.js';
 
 const SOCKET_PATH = '/run/ownprem/helper.sock';
 const SOCKET_DIR = '/run/ownprem';
+const REGISTERED_SERVICES_DIR = '/var/lib/ownprem/services';
 
 // Get ownprem user ID for socket permissions
 function getOwnpremUid(): number {
@@ -29,6 +30,109 @@ function getOwnpremUid(): number {
     process.exit(1);
   }
   return parseInt(result.stdout.trim(), 10);
+}
+
+/**
+ * Verify the service registry directory has correct security properties.
+ * This prevents attacks where an unprivileged user could create symlinks
+ * or manipulate the service registration directory.
+ *
+ * Requirements:
+ * - Directory must exist (created during install)
+ * - Must be owned by root:root
+ * - Must have mode 0700 (rwx------)
+ * - Must NOT be a symlink
+ *
+ * FAILS STARTUP with clear error if misconfigured.
+ */
+function verifyServiceRegistryDirectory(): void {
+  // Check if directory exists
+  if (!existsSync(REGISTERED_SERVICES_DIR)) {
+    console.error(`SECURITY ERROR: Service registry directory does not exist: ${REGISTERED_SERVICES_DIR}`);
+    console.error('This directory should be created during installation.');
+    console.error('To fix manually, run:');
+    console.error(`  sudo mkdir -p ${REGISTERED_SERVICES_DIR}`);
+    console.error(`  sudo chown root:root ${REGISTERED_SERVICES_DIR}`);
+    console.error(`  sudo chmod 0700 ${REGISTERED_SERVICES_DIR}`);
+    process.exit(1);
+  }
+
+  // Check if it's a symlink (BEFORE resolving to real path)
+  try {
+    const lstats = lstatSync(REGISTERED_SERVICES_DIR);
+    if (lstats.isSymbolicLink()) {
+      console.error(`SECURITY ERROR: Service registry directory is a symlink: ${REGISTERED_SERVICES_DIR}`);
+      console.error('This is not allowed for security reasons.');
+      console.error('To fix, remove the symlink and create a real directory:');
+      console.error(`  sudo rm ${REGISTERED_SERVICES_DIR}`);
+      console.error(`  sudo mkdir -p ${REGISTERED_SERVICES_DIR}`);
+      console.error(`  sudo chown root:root ${REGISTERED_SERVICES_DIR}`);
+      console.error(`  sudo chmod 0700 ${REGISTERED_SERVICES_DIR}`);
+      process.exit(1);
+    }
+  } catch (err) {
+    console.error(`SECURITY ERROR: Cannot stat service registry directory: ${err}`);
+    process.exit(1);
+  }
+
+  // Get directory stats (follows symlinks, but we already verified it's not a symlink)
+  let stats;
+  try {
+    stats = statSync(REGISTERED_SERVICES_DIR);
+  } catch (err) {
+    console.error(`SECURITY ERROR: Cannot stat service registry directory: ${err}`);
+    process.exit(1);
+  }
+
+  // Verify ownership (must be root:root, i.e., uid=0, gid=0)
+  if (stats.uid !== 0 || stats.gid !== 0) {
+    console.error(`SECURITY ERROR: Service registry directory has wrong ownership`);
+    console.error(`  Expected: root:root (uid=0, gid=0)`);
+    console.error(`  Found: uid=${stats.uid}, gid=${stats.gid}`);
+    console.error('To fix, run:');
+    console.error(`  sudo chown root:root ${REGISTERED_SERVICES_DIR}`);
+    process.exit(1);
+  }
+
+  // Verify permissions (must be 0700)
+  // mode includes file type bits, so mask with 0o777 to get just permission bits
+  const perms = stats.mode & 0o777;
+  if (perms !== 0o700) {
+    console.error(`SECURITY ERROR: Service registry directory has wrong permissions`);
+    console.error(`  Expected: 0700 (rwx------)`);
+    console.error(`  Found: 0${perms.toString(8)}`);
+    console.error('To fix, run:');
+    console.error(`  sudo chmod 0700 ${REGISTERED_SERVICES_DIR}`);
+    process.exit(1);
+  }
+
+  // Directory is secure
+}
+
+interface PeerCredentials {
+  uid: number;
+  gid: number;
+  pid: number;
+}
+
+/**
+ * Get peer credentials from a Unix socket using SO_PEERCRED.
+ * This allows us to identify which process is making requests.
+ *
+ * TODO: Implement actual SO_PEERCRED support for enhanced audit logging.
+ * Options:
+ * 1. Native addon using getsockopt(fd, SOL_SOCKET, SO_PEERCRED, ...)
+ * 2. Use unix-dgram package which exposes peer credentials
+ * 3. Parse /proc/net/unix to match socket inode to process
+ *
+ * Current implementation is a graceful stub - security is not compromised
+ * as socket permissions (0600, ownprem user only) provide access control.
+ * Peer credentials would enhance audit trail only.
+ */
+function getPeerCredentials(_socket: Socket): PeerCredentials | null {
+  // Stub implementation - returns null until native support is added
+  // The socket permission model (ownprem user only) ensures security
+  return null;
 }
 
 function log(level: string, message: string, data?: Record<string, unknown>): void {
@@ -41,7 +145,7 @@ function log(level: string, message: string, data?: Record<string, unknown>): vo
   console.log(JSON.stringify(entry));
 }
 
-function handleRequest(data: string): HelperResponse {
+function handleRequest(data: string, peerCreds: PeerCredentials | null): HelperResponse {
   let request: HelperRequest;
 
   try {
@@ -51,9 +155,15 @@ function handleRequest(data: string): HelperResponse {
   }
 
   // Log the incoming request (without sensitive content)
-  const logData = request.action !== 'write_file'
+  const logData: Record<string, unknown> = request.action !== 'write_file'
     ? { ...request }
     : { action: 'write_file', path: (request as any).path };
+
+  // Include peer credentials in audit log if available
+  if (peerCreds) {
+    logData.peer = { uid: peerCreds.uid, gid: peerCreds.gid, pid: peerCreds.pid };
+  }
+
   log('info', 'Request received', logData);
 
   try {
@@ -82,6 +192,12 @@ function handleRequest(data: string): HelperResponse {
 function handleConnection(socket: Socket): void {
   let buffer = '';
 
+  // Try to get peer credentials for audit logging
+  const peerCreds = getPeerCredentials(socket);
+  if (peerCreds) {
+    log('debug', 'Client connected', { peer: peerCreds });
+  }
+
   socket.on('data', (data) => {
     buffer += data.toString();
 
@@ -91,7 +207,7 @@ function handleConnection(socket: Socket): void {
 
     for (const line of lines) {
       if (line.trim()) {
-        const response = handleRequest(line);
+        const response = handleRequest(line, peerCreds);
         socket.write(JSON.stringify(response) + '\n');
       }
     }
@@ -112,6 +228,10 @@ function main(): void {
     console.error('Privileged helper must run as root');
     process.exit(1);
   }
+
+  // SECURITY: Verify service registry directory before accepting any requests
+  verifyServiceRegistryDirectory();
+  log('info', 'Service registry directory verified', { path: REGISTERED_SERVICES_DIR });
 
   const ownpremUid = getOwnpremUid();
 

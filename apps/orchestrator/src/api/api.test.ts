@@ -40,6 +40,7 @@ vi.mock('../config.js', () => ({
     secrets: { key: 'test-secrets-key-32-characters!!' },
     jwt: {
       secret: 'test-jwt-secret-for-testing-purposes',
+      isEphemeral: false,
       accessTokenExpiry: '15m',
       refreshTokenExpiry: '7d',
     },
@@ -50,6 +51,10 @@ vi.mock('../config.js', () => ({
       authRateLimitMax: 10,
     },
     cors: { origin: '*' },
+    devMode: {
+      bypassAuth: false,
+      productionIndicators: [],
+    },
   },
 }));
 

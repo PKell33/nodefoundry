@@ -12,6 +12,11 @@ import {
   initClientLogSubscriptions,
   cleanupClientLogSubscriptions,
 } from './logStreamHandler.js';
+import {
+  validateBrowserEvent,
+  LogSubscriptionSchema,
+  LogUnsubscriptionSchema,
+} from './browserValidation.js';
 
 // Browser client tracking
 const browserClients = new Set<Socket>();
@@ -66,8 +71,18 @@ export function handleBrowserClient(
 
   socket.emit('connect_ack', { connected: true, authenticated: isAuthenticated });
 
-  // Handle log stream subscription
-  socket.on('subscribe:logs', async (data: { deploymentId: string }) => {
+  // Handle log stream subscription (with Zod validation)
+  socket.on('subscribe:logs', async (rawData: unknown) => {
+    const data = validateBrowserEvent(LogSubscriptionSchema, rawData, 'subscribe:logs', clientIp);
+    if (!data) {
+      socket.emit('deployment:log:status', {
+        deploymentId: 'unknown',
+        status: 'error',
+        message: 'Invalid subscription request',
+      });
+      return;
+    }
+
     if (!authenticatedBrowserClients.has(socket)) {
       socket.emit('deployment:log:status', {
         deploymentId: data.deploymentId,
@@ -80,8 +95,11 @@ export function handleBrowserClient(
     await handleLogSubscription(socket, data.deploymentId, getAgentSocket);
   });
 
-  // Handle log stream unsubscription
-  socket.on('unsubscribe:logs', (data: { deploymentId: string; streamId?: string }) => {
+  // Handle log stream unsubscription (with Zod validation)
+  socket.on('unsubscribe:logs', (rawData: unknown) => {
+    const data = validateBrowserEvent(LogUnsubscriptionSchema, rawData, 'unsubscribe:logs', clientIp);
+    if (!data) return; // Invalid payload, already logged
+
     handleLogUnsubscription(socket, data.streamId, getAgentSocket);
   });
 

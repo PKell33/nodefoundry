@@ -5,6 +5,9 @@ import logger from '../lib/logger.js';
 // Run cleanup every hour
 const CLEANUP_INTERVAL = 60 * 60 * 1000; // 1 hour
 
+// Keep used backup codes for 90 days (for audit trail), then clean up
+const BACKUP_CODE_RETENTION_DAYS = 90;
+
 let cleanupInterval: NodeJS.Timeout | null = null;
 
 /**
@@ -34,6 +37,60 @@ export function cleanupExpiredSessions(): number {
     return result.changes;
   } catch (err) {
     logger.error({ err }, 'Failed to clean up expired sessions');
+    return 0;
+  }
+}
+
+/**
+ * Clean up old used backup codes from the database.
+ * Keeps codes for BACKUP_CODE_RETENTION_DAYS for audit purposes,
+ * then removes them as they're no longer relevant (codes have been regenerated).
+ * Returns the number of entries deleted.
+ */
+export function cleanupOldBackupCodes(): number {
+  try {
+    const db = getDb();
+
+    // Delete used backup codes older than retention period
+    const result = db.prepare(`
+      DELETE FROM used_backup_codes
+      WHERE used_at < datetime('now', '-' || ? || ' days')
+    `).run(BACKUP_CODE_RETENTION_DAYS);
+
+    if (result.changes > 0) {
+      logger.info(
+        { deleted: result.changes, retentionDays: BACKUP_CODE_RETENTION_DAYS },
+        'Cleaned up old used backup codes'
+      );
+    }
+
+    return result.changes;
+  } catch (err) {
+    logger.error({ err }, 'Failed to clean up old backup codes');
+    return 0;
+  }
+}
+
+/**
+ * Clean up orphaned used backup codes (users that no longer exist).
+ * This handles edge cases where cascade delete might have been missed.
+ */
+export function cleanupOrphanedBackupCodes(): number {
+  try {
+    const db = getDb();
+
+    const result = db.prepare(`
+      DELETE FROM used_backup_codes
+      WHERE user_id NOT IN (SELECT id FROM users)
+    `).run();
+
+    if (result.changes > 0) {
+      logger.info({ deleted: result.changes }, 'Cleaned up orphaned backup codes');
+    }
+
+    return result.changes;
+  } catch (err) {
+    logger.error({ err }, 'Failed to clean up orphaned backup codes');
     return 0;
   }
 }
@@ -71,8 +128,18 @@ export function getActiveSessionCount(): number {
 }
 
 /**
+ * Run all cleanup tasks.
+ */
+function runAllCleanupTasks(): void {
+  cleanupExpiredSessions();
+  cleanupOldBackupCodes();
+  cleanupOrphanedBackupCodes();
+}
+
+/**
  * Start the background session cleanup job.
  * Runs immediately, then repeats at CLEANUP_INTERVAL.
+ * Also cleans up old backup codes.
  */
 export function startSessionCleanup(): void {
   if (cleanupInterval) {
@@ -81,11 +148,11 @@ export function startSessionCleanup(): void {
   }
 
   // Run once at startup
-  cleanupExpiredSessions();
+  runAllCleanupTasks();
 
   // Schedule periodic cleanup
   cleanupInterval = setInterval(() => {
-    cleanupExpiredSessions();
+    runAllCleanupTasks();
   }, CLEANUP_INTERVAL);
 
   logger.info({ intervalMs: CLEANUP_INTERVAL }, 'Session cleanup job started');

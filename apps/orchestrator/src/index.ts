@@ -17,6 +17,25 @@ import { isServerShuttingDown, setServerShuttingDown } from './lib/shutdownState
 async function main(): Promise<void> {
   logger.info({ env: config.nodeEnv }, 'Starting Ownprem Orchestrator');
 
+  // Log dev mode auth bypass status
+  if (config.devMode.bypassAuth) {
+    logger.warn('DEV AUTH BYPASS ACTIVE - authentication is disabled for development');
+    logger.warn('Set ALLOW_DEV_AUTH_BYPASS=false or use production mode to disable');
+  } else if (config.isDevelopment && config.devMode.productionIndicators.length > 0) {
+    logger.info(
+      { indicators: config.devMode.productionIndicators },
+      'Dev auth bypass disabled due to production indicators'
+    );
+  }
+
+  // Log JWT secret status (helpful for debugging session persistence issues)
+  if (config.jwt.isEphemeral) {
+    logger.warn(
+      { hint: config.jwt.debugHint },
+      'Using ephemeral JWT secret - sessions will not persist across restarts'
+    );
+  }
+
   // Initialize database (must be first - other services depend on it)
   initDb();
 

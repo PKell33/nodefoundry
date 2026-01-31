@@ -17,6 +17,8 @@ export interface PendingCommand {
   deploymentId?: string;
   action: string;
   serverId: string;
+  /** Connection generation when command was sent, for stale result detection */
+  connectionGeneration?: number;
 }
 
 const pendingCommands = new Map<string, PendingCommand>();
@@ -41,13 +43,32 @@ export const COMPLETION_TIMEOUTS: Record<string, number> = {
 
 /**
  * Handle command result from agent.
+ * @param connectionGeneration - Current connection generation to detect stale results
  */
-export async function handleCommandResult(io: SocketServer, serverId: string, result: CommandResult): Promise<void> {
+export async function handleCommandResult(
+  io: SocketServer,
+  serverId: string,
+  result: CommandResult,
+  connectionGeneration?: number
+): Promise<void> {
   const db = getDb();
 
   // Clean up pending command tracking
   const pending = pendingCommands.get(result.commandId);
   if (pending) {
+    // Check for stale result from a replaced connection
+    if (pending.connectionGeneration !== undefined &&
+        connectionGeneration !== undefined &&
+        pending.connectionGeneration !== connectionGeneration) {
+      wsLogger.warn({
+        commandId: result.commandId,
+        serverId,
+        expectedGeneration: pending.connectionGeneration,
+        actualGeneration: connectionGeneration,
+      }, 'Ignoring command result from stale connection');
+      return;
+    }
+
     clearTimeout(pending.ackTimeout);
     if (pending.completionTimeout) {
       clearTimeout(pending.completionTimeout);
@@ -236,7 +257,8 @@ export function sendCommand(
   serverId: string,
   command: { id: string; action: string; appName: string; payload?: unknown },
   deploymentId: string | undefined,
-  getAgentSocket: (serverId: string) => Socket | undefined
+  getAgentSocket: (serverId: string) => Socket | undefined,
+  connectionGeneration?: number
 ): boolean {
   const agentSocket = getAgentSocket(serverId);
   if (!agentSocket) {
@@ -287,6 +309,7 @@ export function sendCommand(
     deploymentId,
     action: command.action,
     serverId,
+    connectionGeneration,
   });
 
   agentSocket.emit('command', command);
@@ -303,7 +326,8 @@ export function sendCommandWithResult(
   serverId: string,
   command: { id: string; action: string; appName: string; payload?: unknown },
   getAgentSocket: (serverId: string) => Socket | undefined,
-  deploymentId?: string
+  deploymentId?: string,
+  connectionGeneration?: number
 ): Promise<CommandResult> {
   const agentSocket = getAgentSocket(serverId);
   if (!agentSocket) {
@@ -348,6 +372,7 @@ export function sendCommandWithResult(
       deploymentId,
       action: command.action,
       serverId,
+      connectionGeneration,
     });
 
     agentSocket.emit('command', command);

@@ -28,7 +28,7 @@ const ALLOWED_HOME_PREFIXES = [
 
 // Allowed directory prefixes for create_directory, set_ownership, set_permissions
 // Uses broad patterns to support dynamic app deployments
-const ALLOWED_PATH_PREFIXES = [
+export const ALLOWED_PATH_PREFIXES = [
   '/var/lib/',           // App data directories
   '/etc/step-ca',
   '/etc/caddy',
@@ -189,7 +189,7 @@ export class ValidationError extends Error {
  * Resolve symlinks safely, checking both the path and its parent directories.
  * Returns the real path if safe, or null if the path escapes allowed prefixes.
  */
-function resolvePathSafely(path: string, prefixes: string[]): string | null {
+export function resolvePathSafely(path: string, prefixes: string[]): string | null {
   // Normalize path to prevent basic traversal
   const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '');
 
@@ -255,7 +255,7 @@ function isPathAllowed(path: string, prefixes: string[]): boolean {
   return resolvePathSafely(path, prefixes) !== null;
 }
 
-function isWritePathAllowed(path: string): boolean {
+export function isWritePathAllowed(path: string): boolean {
   const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '');
 
   if (normalized.includes('..') || normalized.includes('\0')) {
@@ -534,8 +534,13 @@ export function validateRequest(request: HelperRequest): void {
         if (request.credentials.domain && !SAFE_DOMAIN_PATTERN.test(request.credentials.domain)) {
           throw new ValidationError('Invalid characters in CIFS domain. Only alphanumeric and .- are allowed.');
         }
-        // Note: Password can contain any characters since it's written to a secure file
-        // and not passed as a command-line argument
+
+        // SECURITY: Reject newlines and null bytes in password to prevent injection
+        // These characters could allow injecting additional lines into the credentials file
+        const DANGEROUS_CHARS = /[\n\r\0]/;
+        if (DANGEROUS_CHARS.test(request.credentials.password)) {
+          throw new ValidationError('CIFS password contains invalid characters (newlines or null bytes are not allowed)');
+        }
       }
       break;
     }

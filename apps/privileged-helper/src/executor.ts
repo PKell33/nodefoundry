@@ -6,8 +6,9 @@
  */
 
 import { spawnSync } from 'child_process';
-import { writeFileSync, mkdirSync, copyFileSync, chmodSync, chownSync, existsSync, mkdtempSync, unlinkSync, rmdirSync } from 'fs';
+import { writeFileSync, mkdirSync, copyFileSync, chmodSync, chownSync, existsSync, mkdtempSync, unlinkSync, rmdirSync, openSync, writeSync, closeSync, fchmodSync, fchownSync, lstatSync, constants, statSync } from 'fs';
 import { tmpdir } from 'os';
+import { isWritePathAllowed, resolvePathSafely, ALLOWED_PATH_PREFIXES } from './validator.js';
 import type {
   HelperRequest,
   HelperResponse,
@@ -74,12 +75,52 @@ function createServiceUser(req: CreateServiceUserRequest): HelperResponse {
 
 function createDirectory(req: CreateDirectoryRequest): HelperResponse {
   try {
+    // SECURITY: Re-validate path immediately before use to narrow TOCTOU window
+    const resolvedPath = resolvePathSafely(req.path, ALLOWED_PATH_PREFIXES);
+    if (!resolvedPath) {
+      return { success: false, error: `Path validation failed on re-check: ${req.path}` };
+    }
+
+    // Check if the exact path already exists as a symlink (before mkdir)
+    if (existsSync(req.path)) {
+      try {
+        const stats = lstatSync(req.path);
+        if (stats.isSymbolicLink()) {
+          return { success: false, error: `Cannot create directory over symlink: ${req.path}` };
+        }
+      } catch {
+        // If we can't stat, let mkdir handle it
+      }
+    }
+
     mkdirSync(req.path, { recursive: true, mode: req.mode ? parseInt(req.mode, 8) : 0o755 });
+
+    // SECURITY: Verify the created directory is what we expect
+    // (defense-in-depth against race conditions)
+    try {
+      const stats = lstatSync(req.path);
+      if (stats.isSymbolicLink()) {
+        // Someone replaced our directory with a symlink - this is an attack
+        return { success: false, error: `Directory was replaced with symlink after creation: ${req.path}` };
+      }
+    } catch (err) {
+      return { success: false, error: `Failed to verify created directory: ${err}` };
+    }
 
     if (req.owner) {
       const ids = getUserIds(req.owner);
       if (ids) {
         chownSync(req.path, ids.uid, ids.gid);
+
+        // SECURITY: Verify ownership was applied correctly
+        try {
+          const stats = statSync(req.path);
+          if (stats.uid !== ids.uid || stats.gid !== ids.gid) {
+            return { success: false, error: `Ownership verification failed for ${req.path}` };
+          }
+        } catch (err) {
+          return { success: false, error: `Failed to verify ownership: ${err}` };
+        }
       } else {
         return { success: false, error: `Unknown owner: ${req.owner}` };
       }
@@ -123,21 +164,65 @@ function setPermissions(req: SetPermissionsRequest): HelperResponse {
 
 function writeFile(req: WriteFileRequest): HelperResponse {
   try {
+    // SECURITY: Re-validate path immediately before use to narrow TOCTOU window
+    if (!isWritePathAllowed(req.path)) {
+      return { success: false, error: `Path validation failed on re-check: ${req.path}` };
+    }
+
     // Ensure parent directory exists
     const parentDir = req.path.substring(0, req.path.lastIndexOf('/'));
     if (parentDir && !existsSync(parentDir)) {
       mkdirSync(parentDir, { recursive: true });
     }
 
-    writeFileSync(req.path, req.content, { mode: req.mode ? parseInt(req.mode, 8) : 0o644 });
-
-    if (req.owner) {
-      const ids = getUserIds(req.owner);
-      if (ids) {
-        chownSync(req.path, ids.uid, ids.gid);
-      } else {
-        return { success: false, error: `Unknown owner: ${req.owner}` };
+    // SECURITY: Check if path is a symlink before writing
+    // This prevents symlink attacks between validation and write
+    if (existsSync(req.path)) {
+      try {
+        const stats = lstatSync(req.path);
+        if (stats.isSymbolicLink()) {
+          return { success: false, error: `Cannot write to symlink: ${req.path}` };
+        }
+      } catch {
+        // If we can't stat, let the open fail naturally
       }
+    }
+
+    // SECURITY: Use O_NOFOLLOW to prevent symlink following
+    // O_NOFOLLOW causes open() to fail if path is a symlink
+    const mode = req.mode ? parseInt(req.mode, 8) : 0o644;
+    let fd: number;
+
+    try {
+      // O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW
+      const flags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW;
+      fd = openSync(req.path, flags, mode);
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message.includes('ELOOP')) {
+        return { success: false, error: `Cannot write through symlink: ${req.path}` };
+      }
+      throw err;
+    }
+
+    try {
+      // Write content using the file descriptor
+      const buffer = Buffer.from(req.content);
+      writeSync(fd, buffer);
+
+      // Set permissions using file descriptor (not path)
+      fchmodSync(fd, mode);
+
+      if (req.owner) {
+        const ids = getUserIds(req.owner);
+        if (ids) {
+          fchownSync(fd, ids.uid, ids.gid);
+        } else {
+          closeSync(fd);
+          return { success: false, error: `Unknown owner: ${req.owner}` };
+        }
+      }
+    } finally {
+      closeSync(fd);
     }
 
     return { success: true, output: `Wrote file ${req.path}` };
@@ -278,10 +363,21 @@ function mount(req: MountRequest): HelperResponse {
       credDir = mkdtempSync(`${tempBase}/ownprem-mount-`);
       credFile = `${credDir}/credentials`;
 
+      // SECURITY: Defense-in-depth sanitization of credentials
+      // Even though validator checks for these, we sanitize here as well
+      const sanitizeCredential = (value: string): string => {
+        // Remove any newlines, carriage returns, or null bytes
+        return value.replace(/[\n\r\0]/g, '');
+      };
+
+      const safeUsername = sanitizeCredential(credentials.username);
+      const safePassword = sanitizeCredential(credentials.password);
+      const safeDomain = credentials.domain ? sanitizeCredential(credentials.domain) : null;
+
       // Write credentials with strict permissions (owner read only)
-      let credContent = `username=${credentials.username}\npassword=${credentials.password}\n`;
-      if (credentials.domain) {
-        credContent += `domain=${credentials.domain}\n`;
+      let credContent = `username=${safeUsername}\npassword=${safePassword}\n`;
+      if (safeDomain) {
+        credContent += `domain=${safeDomain}\n`;
       }
       writeFileSync(credFile, credContent, { mode: 0o400 });
 

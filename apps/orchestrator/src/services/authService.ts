@@ -57,6 +57,8 @@ interface RefreshTokenRow {
   ip_address: string | null;
   user_agent: string | null;
   last_used_at: string | null;
+  family_id: string | null;
+  issued_at: string | null;
 }
 
 export interface SessionInfo {
@@ -168,7 +170,7 @@ class AuthService {
     };
   }
 
-  private storeRefreshToken(userId: string, token: string, sessionMeta?: SessionMetadata): void {
+  private storeRefreshToken(userId: string, token: string, sessionMeta?: SessionMetadata, familyId?: string): string {
     const db = getDb();
     const id = randomUUID();
     const tokenHash = this.hashToken(token);
@@ -177,18 +179,27 @@ class AuthService {
     const decoded = jwt.decode(token) as { exp: number };
     const expiresAt = new Date(decoded.exp * 1000).toISOString();
 
-    db.prepare(`
-      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at, ip_address, user_agent, last_used_at)
-      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP)
-    `).run(id, userId, tokenHash, expiresAt, sessionMeta?.ipAddress || null, sessionMeta?.userAgent || null);
+    // If no familyId provided, this is a new login - token becomes its own family
+    const tokenFamilyId = familyId || id;
 
-    // Clean up old tokens for this user (keep last 5 sessions)
+    db.prepare(`
+      INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at, ip_address, user_agent, last_used_at, family_id, issued_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+    `).run(id, userId, tokenHash, expiresAt, sessionMeta?.ipAddress || null, sessionMeta?.userAgent || null, tokenFamilyId);
+
+    // Clean up old tokens for this user (keep last 5 token families)
+    // This preserves token rotation within families while limiting total sessions
     db.prepare(`
       DELETE FROM refresh_tokens
-      WHERE user_id = ? AND id NOT IN (
-        SELECT id FROM refresh_tokens WHERE user_id = ? ORDER BY created_at DESC LIMIT 5
+      WHERE user_id = ? AND family_id NOT IN (
+        SELECT DISTINCT family_id FROM refresh_tokens
+        WHERE user_id = ?
+        ORDER BY created_at DESC
+        LIMIT 5
       )
     `).run(userId, userId);
+
+    return id;
   }
 
   private hashToken(token: string): string {
@@ -226,6 +237,25 @@ class AuthService {
     `).get(tokenHash) as RefreshTokenRow | undefined;
 
     if (!storedToken) {
+      // Token not found - could be a reuse attempt
+      // Check if there's a newer token in the same family (theft detection)
+      const familyToken = db.prepare(`
+        SELECT family_id FROM refresh_tokens
+        WHERE user_id = ? AND family_id IN (
+          SELECT family_id FROM refresh_tokens WHERE token_hash = ?
+        )
+      `).get(decoded.userId, tokenHash) as { family_id: string } | undefined;
+
+      if (familyToken) {
+        // This token was rotated but is being reused - potential theft!
+        // Invalidate the entire token family
+        authLogger.warn(
+          { userId: decoded.userId, familyId: familyToken.family_id },
+          'TOKEN THEFT DETECTED: Rotated token reused - invalidating entire token family'
+        );
+        db.prepare('DELETE FROM refresh_tokens WHERE family_id = ?').run(familyToken.family_id);
+      }
+
       return null;
     }
 
@@ -235,15 +265,48 @@ class AuthService {
       return null;
     }
 
-    // Delete old refresh token
+    // Store the family_id before deleting the old token
+    const familyId = storedToken.family_id || storedToken.id;
+
+    // Delete old refresh token (rotation)
     db.prepare('DELETE FROM refresh_tokens WHERE id = ?').run(storedToken.id);
 
-    // Generate new tokens, preserving session metadata (update IP if changed)
+    // Generate new tokens with same family_id, preserving session metadata (update IP if changed)
     const meta: SessionMetadata = {
       ipAddress: sessionMeta?.ipAddress || storedToken.ip_address || undefined,
       userAgent: storedToken.user_agent || sessionMeta?.userAgent || undefined,
     };
-    return this.generateTokens(user, meta);
+    return this.generateTokensWithFamily(user, meta, familyId);
+  }
+
+  /**
+   * Generate tokens with a specific family ID (for token rotation).
+   */
+  private generateTokensWithFamily(user: UserRow, sessionMeta: SessionMetadata | undefined, familyId: string): AuthTokens {
+    const payload: TokenPayload = {
+      userId: user.id,
+      username: user.username,
+      isSystemAdmin: Boolean(user.is_system_admin),
+    };
+
+    const accessToken = jwt.sign(payload, this.getJwtSecret(), {
+      expiresIn: config.jwt.accessTokenExpiry as jwt.SignOptions['expiresIn'],
+    });
+
+    const refreshToken = jwt.sign(
+      { userId: user.id, type: 'refresh' },
+      this.getJwtSecret(),
+      { expiresIn: config.jwt.refreshTokenExpiry as jwt.SignOptions['expiresIn'] }
+    );
+
+    // Store refresh token hash with family ID for rotation tracking
+    this.storeRefreshToken(user.id, refreshToken, sessionMeta, familyId);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 900, // 15 minutes in seconds
+    };
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<void> {
@@ -655,18 +718,27 @@ class AuthService {
       return true;
     }
 
-    // Try backup code
+    // Try backup code with atomic insertion to prevent race conditions
     if (user.backup_codes) {
       const hashedCodes = JSON.parse(user.backup_codes) as string[];
       const codeHash = this.hashToken(code.toUpperCase());
-      const codeIndex = hashedCodes.indexOf(codeHash);
 
-      if (codeIndex !== -1) {
-        // Remove used backup code
-        hashedCodes.splice(codeIndex, 1);
-        db.prepare('UPDATE users SET backup_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-          .run(JSON.stringify(hashedCodes), userId);
-        return true;
+      // Check if code is in the valid list
+      if (hashedCodes.includes(codeHash)) {
+        // Atomically mark the code as used by inserting into used_backup_codes
+        // The UNIQUE constraint on (user_id, code_hash) ensures the code can only be used once
+        try {
+          db.prepare('INSERT INTO used_backup_codes (user_id, code_hash) VALUES (?, ?)').run(userId, codeHash);
+          authLogger.info({ userId }, 'Backup code used successfully');
+          return true;
+        } catch (err: unknown) {
+          // If insertion fails due to UNIQUE constraint, the code was already used
+          if (err instanceof Error && err.message.includes('UNIQUE constraint failed')) {
+            authLogger.warn({ userId }, 'Attempted to reuse backup code');
+            return false;
+          }
+          throw err;
+        }
       }
     }
 
@@ -732,8 +804,19 @@ class AuthService {
     }
 
     const backupCodes = this.generateBackupCodes();
-    db.prepare('UPDATE users SET backup_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-      .run(JSON.stringify(backupCodes.map(c => this.hashToken(c))), userId);
+
+    // Use a transaction to update backup codes and clear used codes atomically
+    const updateBackupCodes = db.transaction(() => {
+      // Delete all used backup codes for this user
+      db.prepare('DELETE FROM used_backup_codes WHERE user_id = ?').run(userId);
+
+      // Update the user's backup codes
+      db.prepare('UPDATE users SET backup_codes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run(JSON.stringify(backupCodes.map(c => this.hashToken(c))), userId);
+    });
+
+    updateBackupCodes();
+    authLogger.info({ userId }, 'Backup codes regenerated');
 
     return backupCodes;
   }
@@ -746,15 +829,19 @@ class AuthService {
       return { enabled: false, backupCodesRemaining: 0 };
     }
 
-    let backupCodesRemaining = 0;
+    let totalCodes = 0;
     if (user.backup_codes) {
       try {
         const codes = JSON.parse(user.backup_codes) as string[];
-        backupCodesRemaining = codes.length;
+        totalCodes = codes.length;
       } catch {
-        backupCodesRemaining = 0;
+        totalCodes = 0;
       }
     }
+
+    // Count used backup codes
+    const usedCount = db.prepare('SELECT COUNT(*) as count FROM used_backup_codes WHERE user_id = ?').get(userId) as { count: number };
+    const backupCodesRemaining = Math.max(0, totalCodes - usedCount.count);
 
     return {
       enabled: user.totp_enabled,

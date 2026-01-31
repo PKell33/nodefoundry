@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS services (
     id TEXT PRIMARY KEY,
     deployment_id TEXT NOT NULL REFERENCES deployments(id) ON DELETE CASCADE,
     service_name TEXT NOT NULL,
-    server_id TEXT NOT NULL REFERENCES servers(id),
+    server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
     host TEXT NOT NULL,
     port INTEGER NOT NULL,
     tor_address TEXT,
@@ -100,8 +100,8 @@ CREATE INDEX IF NOT EXISTS idx_service_routes_service ON service_routes(service_
 -- Command log
 CREATE TABLE IF NOT EXISTS command_log (
     id TEXT PRIMARY KEY,
-    server_id TEXT NOT NULL,
-    deployment_id TEXT,
+    server_id TEXT NOT NULL REFERENCES servers(id) ON DELETE CASCADE,
+    deployment_id TEXT REFERENCES deployments(id) ON DELETE CASCADE,
     action TEXT NOT NULL,
     payload JSON,
     status TEXT,
@@ -109,6 +109,9 @@ CREATE TABLE IF NOT EXISTS command_log (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP
 );
+
+CREATE INDEX IF NOT EXISTS idx_command_log_deployment ON command_log(deployment_id);
+CREATE INDEX IF NOT EXISTS idx_command_log_server ON command_log(server_id);
 
 -- Users for authentication
 CREATE TABLE IF NOT EXISTS users (
@@ -155,10 +158,13 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     ip_address TEXT,
     user_agent TEXT,
-    last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    family_id TEXT,  -- Token family for rotation tracking
+    issued_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP  -- When this specific token was issued
 );
 
 CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_family ON refresh_tokens(family_id);
 
 -- Agent tokens for authentication
 CREATE TABLE IF NOT EXISTS agent_tokens (
@@ -200,8 +206,11 @@ CREATE TABLE IF NOT EXISTS system_settings (
 
 -- Performance indexes for frequently queried columns
 CREATE INDEX IF NOT EXISTS idx_deployments_status ON deployments(status);
+CREATE INDEX IF NOT EXISTS idx_deployments_app ON deployments(app_name);
 CREATE INDEX IF NOT EXISTS idx_command_log_status ON command_log(status);
 CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_log_resource ON audit_log(resource_type, resource_id);
+CREATE INDEX IF NOT EXISTS idx_proxy_routes_deployment ON proxy_routes(deployment_id);
 
 -- Initialize core server on first run
 INSERT OR IGNORE INTO servers (id, name, is_core, agent_status)
@@ -310,3 +319,22 @@ CREATE TABLE IF NOT EXISTS caddy_instances (
 
 CREATE INDEX IF NOT EXISTS idx_caddy_instances_deployment ON caddy_instances(deployment_id);
 CREATE INDEX IF NOT EXISTS idx_caddy_instances_ha ON caddy_instances(ha_config_id);
+
+-- Used backup codes (for atomic backup code consumption)
+-- Each backup code can only be used once; UNIQUE constraint enforces this atomically
+CREATE TABLE IF NOT EXISTS used_backup_codes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    code_hash TEXT NOT NULL,
+    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, code_hash)
+);
+
+CREATE INDEX IF NOT EXISTS idx_used_backup_codes_user ON used_backup_codes(user_id);
+
+-- Schema migrations tracking table
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

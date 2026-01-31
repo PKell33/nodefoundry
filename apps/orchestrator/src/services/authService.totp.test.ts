@@ -74,6 +74,20 @@ vi.mock('../db/index.js', () => {
             ip_address TEXT,
             user_agent TEXT,
             last_used_at TEXT,
+            family_id TEXT,
+            issued_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+          )
+        `);
+
+        // Create used_backup_codes table for atomic backup code usage
+        db.exec(`
+          CREATE TABLE used_backup_codes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            code_hash TEXT NOT NULL,
+            used_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, code_hash),
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
           )
         `);
@@ -126,6 +140,7 @@ import { getDb } from '../db/index.js';
 // Helper to reset database between tests
 function resetTestDb(): void {
   const db = getDb();
+  db.exec('DELETE FROM used_backup_codes');
   db.exec('DELETE FROM user_groups');
   db.exec('DELETE FROM refresh_tokens');
   db.exec('DELETE FROM users');

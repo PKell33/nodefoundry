@@ -1,4 +1,5 @@
 import type { Socket } from 'socket.io';
+import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import { sendCommandWithResult } from './commandDispatcher.js';
@@ -71,7 +72,7 @@ export async function autoMountServerStorage(
   for (const sm of serverMounts) {
     try {
       // First check if already mounted
-      const checkId = `check-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const checkId = randomUUID();
       const checkResult = await sendMountCommand(serverId, {
         id: checkId,
         action: 'checkMount',
@@ -123,7 +124,7 @@ export async function autoMountServerStorage(
         }
       }
 
-      const mountId = `mount-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+      const mountId = randomUUID();
       const mountResult = await sendMountCommand(serverId, {
         id: mountId,
         action: 'mountStorage',

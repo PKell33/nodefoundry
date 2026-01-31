@@ -63,6 +63,22 @@ export class Deployer {
     groupId?: string,
     serviceBindings?: Record<string, string>
   ): Promise<Deployment> {
+    // Use server-level mutex to prevent concurrent installations of the same app
+    // This prevents race conditions where two install() calls could both pass
+    // validation before either inserts the deployment record
+    return mutexManager.withServerLock(serverId, async () => {
+      return this.installWithinLock(serverId, appName, userConfig, version, groupId, serviceBindings);
+    });
+  }
+
+  private async installWithinLock(
+    serverId: string,
+    appName: string,
+    userConfig: Record<string, unknown> = {},
+    version?: string,
+    groupId?: string,
+    serviceBindings?: Record<string, string>
+  ): Promise<Deployment> {
     const db = getDb();
 
     // Check if agent is connected
@@ -394,6 +410,7 @@ export class Deployer {
     requireAgentConnected(deployment.serverId);
 
     const db = getDb();
+    const previousStatus = deployment.status;
 
     // Check if this is a mandatory app on the core server
     checkCanUninstall(deployment.appName, deployment.serverId);
@@ -401,48 +418,56 @@ export class Deployer {
     // Update status to uninstalling first
     setDeploymentStatus(deploymentId, 'uninstalling');
 
-    // Send uninstall command
-    const commandId = uuidv4();
-    sendCommand(deployment.serverId, {
-      id: commandId,
-      action: 'uninstall',
-      appName: deployment.appName,
-    }, deploymentId);
+    try {
+      // Send uninstall command
+      const commandId = uuidv4();
+      sendCommand(deployment.serverId, {
+        id: commandId,
+        action: 'uninstall',
+        appName: deployment.appName,
+      }, deploymentId);
 
-    // Remove proxy routes (DB operations, done before transaction to use async proxyManager)
-    await proxyManager.unregisterRoute(deploymentId);
-    await proxyManager.unregisterServiceRoutesByDeployment(deploymentId);
+      // Remove proxy routes (DB operations, done before transaction to use async proxyManager)
+      await proxyManager.unregisterRoute(deploymentId);
+      await proxyManager.unregisterServiceRoutesByDeployment(deploymentId);
 
-    // Unregister Caddy instance from HA manager if this is a Caddy deployment
-    if (deployment.appName === 'ownprem-caddy') {
-      try {
-        const instance = await caddyHAManager.getInstanceByDeployment(deploymentId);
-        if (instance) {
-          await caddyHAManager.unregisterInstance(instance.id);
-          logger.info({ deploymentId }, 'Unregistered Caddy instance from HA manager');
+      // Unregister Caddy instance from HA manager if this is a Caddy deployment
+      if (deployment.appName === 'ownprem-caddy') {
+        try {
+          const instance = await caddyHAManager.getInstanceByDeployment(deploymentId);
+          if (instance) {
+            await caddyHAManager.unregisterInstance(instance.id);
+            logger.info({ deploymentId }, 'Unregistered Caddy instance from HA manager');
+          }
+        } catch (err) {
+          logger.warn({ deploymentId, err }, 'Failed to unregister Caddy instance from HA manager');
         }
-      } catch (err) {
-        logger.warn({ deploymentId, err }, 'Failed to unregister Caddy instance from HA manager');
       }
+
+      // Atomic transaction: services + secrets + deployment deletion
+      runInTransaction(() => {
+        // Remove services
+        serviceRegistry.unregisterServicesSync(deploymentId);
+
+        // Delete secrets
+        secretsManager.deleteSecretsSync(deploymentId);
+
+        // Delete deployment record
+        db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
+      });
+
+      // Clean up deployment mutex to prevent memory leak
+      mutexManager.cleanupDeploymentMutex(deploymentId);
+
+      // Update Caddy config and reload (external operation, outside transaction)
+      await proxyManager.updateAndReload();
+    } catch (err) {
+      // Rollback: restore previous status on failure
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      logger.error({ deploymentId, err }, 'Uninstall failed, rolling back status');
+      updateDeploymentStatus(deploymentId, 'error', `Uninstall failed: ${errorMessage}`);
+      throw err;
     }
-
-    // Atomic transaction: services + secrets + deployment deletion
-    runInTransaction(() => {
-      // Remove services
-      serviceRegistry.unregisterServicesSync(deploymentId);
-
-      // Delete secrets
-      secretsManager.deleteSecretsSync(deploymentId);
-
-      // Delete deployment record
-      db.prepare('DELETE FROM deployments WHERE id = ?').run(deploymentId);
-    });
-
-    // Clean up deployment mutex to prevent memory leak
-    mutexManager.cleanupDeploymentMutex(deploymentId);
-
-    // Update Caddy config and reload (external operation, outside transaction)
-    await proxyManager.updateAndReload();
 
     auditService.log({
       action: 'deployment_uninstalled',

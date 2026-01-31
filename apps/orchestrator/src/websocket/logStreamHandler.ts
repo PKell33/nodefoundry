@@ -1,4 +1,5 @@
 import type { Socket } from 'socket.io';
+import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import type { LogResult, LogStreamLine, LogStreamStatus } from '@ownprem/shared';
@@ -153,8 +154,8 @@ export async function handleLogSubscription(
     return;
   }
 
-  // Generate a unique stream ID
-  const streamId = `${deploymentId}-${Date.now()}`;
+  // Generate a unique stream ID using cryptographically secure random UUID
+  const streamId = randomUUID();
 
   // Check if there's already an active stream for this deployment
   for (const [existingStreamId, sub] of activeLogStreams) {
@@ -338,7 +339,7 @@ export async function requestLogs(
     throw new Error(`Agent not connected: ${serverId}`);
   }
 
-  const commandId = `logs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const commandId = randomUUID();
 
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {

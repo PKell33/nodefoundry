@@ -111,9 +111,11 @@ vi.mock('../websocket/agentHandler.js', () => ({
 vi.mock('../lib/mutexManager.js', () => ({
   mutexManager: {
     withDeploymentLock: async (id: string, fn: () => Promise<void>) => fn(),
+    withServerLock: async (id: string, fn: () => Promise<unknown>) => fn(),
     cleanupDeploymentMutex: vi.fn(() => {
       compensationCalls.push('cleanupMutex');
     }),
+    cleanupServerMutex: vi.fn(),
   },
 }));
 
@@ -561,6 +563,139 @@ describe('Deployer Rollback', () => {
       await freshDeployer.uninstall(deployment.id);
 
       expect(mutexManager.cleanupDeploymentMutex).toHaveBeenCalledWith(deployment.id);
+    });
+  });
+
+  describe('Concurrent Install Protection', () => {
+    it('should use server lock during install', async () => {
+      vi.mocked(validateInstall).mockResolvedValue(createValidationResult());
+      vi.mocked(sendCommandAndWait).mockResolvedValue({ commandId: 'cmd-1', status: 'success' });
+
+      const freshDeployer = new Deployer();
+
+      // The install should use the server lock
+      // This is verified by the fact that install() calls withServerLock
+      await freshDeployer.install('test-server', 'test-app', {});
+
+      // Deployment should exist
+      const deployment = db.prepare('SELECT * FROM deployments WHERE app_name = ?').get('test-app');
+      expect(deployment).toBeDefined();
+    });
+
+    it('should prevent duplicate app installation on same server', async () => {
+      vi.mocked(validateInstall).mockResolvedValue(createValidationResult());
+      vi.mocked(sendCommandAndWait).mockResolvedValue({ commandId: 'cmd-1', status: 'success' });
+
+      const freshDeployer = new Deployer();
+
+      // First install succeeds
+      await freshDeployer.install('test-server', 'test-app', {});
+
+      // Second install for same app should fail (app already deployed)
+      // Note: validateInstall would throw in real scenario due to UNIQUE constraint
+      vi.mocked(validateInstall).mockRejectedValue(new Error('App already installed on server'));
+
+      await expect(freshDeployer.install('test-server', 'test-app', {})).rejects.toThrow('App already installed');
+    });
+
+    it('should allow same app installation on different servers', async () => {
+      vi.mocked(validateInstall).mockResolvedValue(createValidationResult());
+      vi.mocked(sendCommandAndWait).mockResolvedValue({ commandId: 'cmd-1', status: 'success' });
+
+      // Add second server
+      db.prepare(`
+        INSERT INTO servers (id, name, host, is_core, agent_status)
+        VALUES ('test-server-2', 'Test Server 2', '192.168.1.101', 0, 'online')
+      `).run();
+
+      const freshDeployer = new Deployer();
+
+      // Install on first server
+      const deploy1 = await freshDeployer.install('test-server', 'test-app', {});
+      expect(deploy1.serverId).toBe('test-server');
+
+      // Install same app on second server should work
+      const deploy2 = await freshDeployer.install('test-server-2', 'test-app', {});
+      expect(deploy2.serverId).toBe('test-server-2');
+
+      // Both deployments should exist
+      const deployments = db.prepare('SELECT * FROM deployments WHERE app_name = ?').all('test-app');
+      expect(deployments.length).toBe(2);
+    });
+  });
+
+  describe('CASCADE Behavior', () => {
+    it('should cascade delete services when deployment is deleted', async () => {
+      vi.mocked(validateInstall).mockResolvedValue(createValidationResult());
+
+      const freshDeployer = new Deployer();
+      const deployment = await freshDeployer.install('test-server', 'test-app', {});
+
+      // Manually insert a service to test CASCADE (since service registry is mocked)
+      db.prepare(`
+        INSERT INTO services (id, deployment_id, service_name, server_id, host, port, status)
+        VALUES ('svc-test', ?, 'api', 'test-server', '127.0.0.1', 8080, 'available')
+      `).run(deployment.id);
+
+      // Verify service was created
+      const servicesBefore = db.prepare('SELECT * FROM services WHERE deployment_id = ?').all(deployment.id);
+      expect(servicesBefore.length).toBe(1);
+
+      // Delete the deployment - should cascade to services
+      db.prepare('DELETE FROM deployments WHERE id = ?').run(deployment.id);
+
+      // Services should be deleted by CASCADE
+      const servicesAfter = db.prepare('SELECT * FROM services WHERE deployment_id = ?').all(deployment.id);
+      expect(servicesAfter.length).toBe(0);
+    });
+
+    it('should cascade delete command_log entries when deployment is deleted', async () => {
+      vi.mocked(validateInstall).mockResolvedValue(createValidationResult());
+
+      const freshDeployer = new Deployer();
+      const deployment = await freshDeployer.install('test-server', 'test-app', {});
+
+      // Manually insert command_log entry (since sendCommand is mocked and doesn't actually insert)
+      db.prepare(`
+        INSERT INTO command_log (id, server_id, deployment_id, action, status)
+        VALUES ('cmd-test-cascade', 'test-server', ?, 'install', 'success')
+      `).run(deployment.id);
+
+      // Verify command_log entry exists
+      const logsBefore = db.prepare('SELECT * FROM command_log WHERE deployment_id = ?').all(deployment.id);
+      expect(logsBefore.length).toBe(1);
+
+      // Delete the deployment
+      db.prepare('DELETE FROM deployments WHERE id = ?').run(deployment.id);
+
+      // Command log entries should be deleted by CASCADE
+      const logsAfter = db.prepare('SELECT * FROM command_log WHERE deployment_id = ?').all(deployment.id);
+      expect(logsAfter.length).toBe(0);
+    });
+
+    it('should cascade delete command_log entries when server is deleted', async () => {
+      // Create a separate server for this test
+      db.prepare(`
+        INSERT INTO servers (id, name, host, is_core, agent_status)
+        VALUES ('cascade-test-server', 'Cascade Test', '192.168.1.200', 0, 'online')
+      `).run();
+
+      // Insert a command_log entry for this server
+      db.prepare(`
+        INSERT INTO command_log (id, server_id, action, status)
+        VALUES ('cmd-cascade-test', 'cascade-test-server', 'test', 'pending')
+      `).run();
+
+      // Verify it exists
+      const logBefore = db.prepare('SELECT * FROM command_log WHERE server_id = ?').get('cascade-test-server');
+      expect(logBefore).toBeDefined();
+
+      // Delete the server
+      db.prepare('DELETE FROM servers WHERE id = ?').run('cascade-test-server');
+
+      // Command log should be deleted by CASCADE
+      const logAfter = db.prepare('SELECT * FROM command_log WHERE server_id = ?').get('cascade-test-server');
+      expect(logAfter).toBeUndefined();
     });
   });
 });

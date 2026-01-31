@@ -19,7 +19,16 @@ import { isValidAgentAuth } from '@ownprem/shared';
 
 // Import from extracted modules
 import type { AgentConnection } from './agentTypes.js';
-import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, SHUTDOWN_TIMEOUT } from './agentTypes.js';
+import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, SHUTDOWN_TIMEOUT, getNextConnectionGeneration } from './agentTypes.js';
+import {
+  validateWithSchema,
+  AgentStatusReportSchema,
+  CommandAckSchema,
+  CommandResultSchema,
+  LogResultSchema,
+  LogStreamLineSchema,
+  LogStreamStatusSchema,
+} from './agentValidation.js';
 import { authenticateAgent, hashToken } from './agentAuth.js';
 import { handleStatusReport } from './statusHandler.js';
 import { handleBrowserClient } from './browserClient.js';
@@ -60,6 +69,14 @@ export { hashToken } from './agentAuth.js';
  */
 function getAgentSocket(serverId: string): Socket | undefined {
   return connectedAgents.get(serverId)?.socket;
+}
+
+/**
+ * Get the connection generation for a server.
+ * Used by command dispatcher to track which connection a command was sent on.
+ */
+export function getConnectionGeneration(serverId: string): number | undefined {
+  return connectedAgents.get(serverId)?.connectionGeneration;
 }
 
 export function getConnectedAgents(): Map<string, Socket> {
@@ -151,11 +168,13 @@ export function setupAgentHandler(io: SocketServer): void {
 
       wsLogger.info({ serverId, clientIp }, 'Agent connected');
 
-      // Create connection entry
+      // Create connection entry with generation number for stale result detection
+      const connectionGeneration = getNextConnectionGeneration(serverId);
       const connection: AgentConnection = {
         socket,
         serverId,
         lastSeen: new Date(),
+        connectionGeneration,
       };
 
       // Set up heartbeat
@@ -192,42 +211,65 @@ export function setupAgentHandler(io: SocketServer): void {
       }
     });
 
-    // Handle status reports from agent
-    socket.on('status', (report: AgentStatusReport) => {
+    // Handle status reports from agent (with Zod validation)
+    socket.on('status', (rawReport: unknown) => {
+      const report = validateWithSchema(AgentStatusReportSchema, rawReport, 'status', serverId);
+      if (!report) return; // Invalid payload, already logged
+
       const conn = connectedAgents.get(serverId);
       if (conn) {
         conn.lastSeen = new Date();
       }
-      handleStatusReport(io, serverId, report).catch(err => {
+      // Cast through unknown since Zod's passthrough() type doesn't perfectly match
+      handleStatusReport(io, serverId, report as unknown as AgentStatusReport).catch(err => {
         wsLogger.error({ serverId, err }, 'Error handling status report');
       });
     });
 
-    // Handle command acknowledgment
-    socket.on('command:ack', (ack: CommandAck) => {
-      handleCommandAck(serverId, ack);
+    // Handle command acknowledgment (with Zod validation)
+    socket.on('command:ack', (rawAck: unknown) => {
+      const ack = validateWithSchema(CommandAckSchema, rawAck, 'command:ack', serverId);
+      if (!ack) return;
+
+      handleCommandAck(serverId, ack as CommandAck);
     });
 
-    // Handle command results
-    socket.on('command:result', (result: CommandResult) => {
-      handleCommandResult(io, serverId, result).catch(err => {
-        wsLogger.error({ serverId, commandId: result.commandId, err }, 'Error handling command result');
+    // Handle command results (with Zod validation)
+    socket.on('command:result', (rawResult: unknown) => {
+      const result = validateWithSchema(CommandResultSchema, rawResult, 'command:result', serverId);
+      if (!result) return;
+
+      // Get connection generation to detect stale results
+      const conn = connectedAgents.get(serverId);
+      const connectionGeneration = conn?.connectionGeneration;
+
+      handleCommandResult(io, serverId, result as CommandResult, connectionGeneration).catch(err => {
+        wsLogger.error({ serverId, commandId: (result as CommandResult).commandId, err }, 'Error handling command result');
       });
     });
 
-    // Handle log results
-    socket.on('logs:result', (result: LogResult) => {
-      handleLogResult(serverId, result);
+    // Handle log results (with Zod validation)
+    socket.on('logs:result', (rawResult: unknown) => {
+      const result = validateWithSchema(LogResultSchema, rawResult, 'logs:result', serverId);
+      if (!result) return;
+
+      handleLogResult(serverId, result as LogResult);
     });
 
-    // Handle log stream lines
-    socket.on('logs:stream:line', (line: LogStreamLine) => {
-      handleLogStreamLine(line);
+    // Handle log stream lines (with Zod validation)
+    socket.on('logs:stream:line', (rawLine: unknown) => {
+      const line = validateWithSchema(LogStreamLineSchema, rawLine, 'logs:stream:line', serverId);
+      if (!line) return;
+
+      handleLogStreamLine(line as LogStreamLine);
     });
 
-    // Handle log stream status
-    socket.on('logs:stream:status', (status: LogStreamStatus) => {
-      handleLogStreamStatus(serverId, status);
+    // Handle log stream status (with Zod validation)
+    socket.on('logs:stream:status', (rawStatus: unknown) => {
+      const status = validateWithSchema(LogStreamStatusSchema, rawStatus, 'logs:stream:status', serverId);
+      if (!status) return;
+
+      handleLogStreamStatus(serverId, status as LogStreamStatus);
     });
 
     // Handle disconnect
@@ -272,7 +314,8 @@ export function sendCommand(
   command: { id: string; action: string; appName: string; payload?: unknown },
   deploymentId?: string
 ): boolean {
-  return sendCommandInternal(serverId, command, deploymentId, getAgentSocket);
+  const connectionGeneration = getConnectionGeneration(serverId);
+  return sendCommandInternal(serverId, command, deploymentId, getAgentSocket, connectionGeneration);
 }
 
 /**
@@ -285,7 +328,8 @@ export function sendCommandAndWait(
   command: { id: string; action: string; appName: string; payload?: unknown },
   deploymentId?: string
 ): Promise<import('@ownprem/shared').CommandResult> {
-  return sendCommandWithResultInternal(serverId, command, getAgentSocket, deploymentId);
+  const connectionGeneration = getConnectionGeneration(serverId);
+  return sendCommandWithResultInternal(serverId, command, getAgentSocket, deploymentId, connectionGeneration);
 }
 
 export function sendMountCommand(

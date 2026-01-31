@@ -84,6 +84,48 @@ if (!nodeEnv) {
 }
 const isDevelopment = nodeEnv === 'development';
 
+/**
+ * Detect production environment indicators.
+ * If any are present, dev mode bypasses should be disabled even in development.
+ */
+function detectProductionIndicators(): string[] {
+  const indicators: string[] = [];
+
+  // Kubernetes
+  if (process.env.KUBERNETES_SERVICE_HOST || process.env.K8S_NAMESPACE) {
+    indicators.push('Kubernetes environment detected');
+  }
+
+  // AWS
+  if (process.env.AWS_EXECUTION_ENV || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.ECS_CONTAINER_METADATA_URI) {
+    indicators.push('AWS environment detected');
+  }
+
+  // GCP
+  if (process.env.GOOGLE_CLOUD_PROJECT || process.env.K_SERVICE || process.env.CLOUD_RUN_JOB) {
+    indicators.push('GCP environment detected');
+  }
+
+  // Azure
+  if (process.env.WEBSITE_SITE_NAME || process.env.AZURE_FUNCTIONS_ENVIRONMENT) {
+    indicators.push('Azure environment detected');
+  }
+
+  // Let's Encrypt / public domain (indicates production deployment)
+  if (process.env.ACME_EMAIL || process.env.LETSENCRYPT_EMAIL) {
+    indicators.push('Let\'s Encrypt configuration detected');
+  }
+
+  // Systemd service
+  if (process.env.INVOCATION_ID && process.env.JOURNAL_STREAM) {
+    indicators.push('Running as systemd service');
+  }
+
+  return indicators;
+}
+
+const productionIndicators = detectProductionIndicators();
+
 // Default values
 const DEFAULT_PORT = 3001;
 const DEFAULT_BCRYPT_ROUNDS = 12;
@@ -91,20 +133,34 @@ const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 const RATE_LIMIT_MAX_REQUESTS = 100;
 const AUTH_RATE_LIMIT_MAX = 10; // Stricter limit for auth endpoints
 
+export interface JwtSecretResult {
+  secret: string;
+  isEphemeral: boolean;
+  debugHint?: string;
+}
+
 /**
  * Get JWT secret - generates ephemeral secret for dev mode, requires env var for production
  */
-function getJwtSecret(): string {
+function getJwtSecret(): JwtSecretResult {
   const envSecret = process.env.JWT_SECRET;
 
   if (envSecret) {
-    return envSecret;
+    return {
+      secret: envSecret,
+      isEphemeral: false,
+    };
   }
 
   if (isDevelopment) {
     // Generate random ephemeral secret for development
-    // This is logged at startup so developers know sessions won't persist
-    return randomBytes(32).toString('base64');
+    const ephemeralSecret = randomBytes(32).toString('base64');
+    return {
+      secret: ephemeralSecret,
+      isEphemeral: true,
+      // First 8 chars for debugging (enough to identify without exposing full secret)
+      debugHint: ephemeralSecret.substring(0, 8) + '...',
+    };
   }
 
   // In production, JWT_SECRET is required
@@ -113,6 +169,8 @@ function getJwtSecret(): string {
     'Generate one with: openssl rand -base64 32'
   );
 }
+
+const jwtSecretResult = getJwtSecret();
 
 export const config = {
   port: parseInt(process.env.PORT || String(DEFAULT_PORT), 10),
@@ -152,7 +210,9 @@ export const config = {
   },
 
   jwt: {
-    secret: getJwtSecret(),
+    secret: jwtSecretResult.secret,
+    isEphemeral: jwtSecretResult.isEphemeral,
+    debugHint: jwtSecretResult.debugHint,
     accessTokenExpiry: '15m',
     refreshTokenExpiry: '7d',
   },
@@ -166,6 +226,20 @@ export const config = {
 
   cors: {
     origin: process.env.CORS_ORIGIN || (isDevelopment ? '*' : ''),
+  },
+
+  devMode: {
+    /**
+     * Whether dev auth bypass is allowed.
+     * Only enabled when:
+     * 1. NODE_ENV=development
+     * 2. ALLOW_DEV_AUTH_BYPASS=true is set
+     * 3. No production indicators are detected
+     */
+    bypassAuth: isDevelopment &&
+      process.env.ALLOW_DEV_AUTH_BYPASS === 'true' &&
+      productionIndicators.length === 0,
+    productionIndicators,
   },
 };
 

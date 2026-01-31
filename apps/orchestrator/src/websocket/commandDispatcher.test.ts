@@ -781,6 +781,143 @@ describe('Command Dispatcher', () => {
     });
   });
 
+  describe('Connection Generation (Stale Result Prevention)', () => {
+    it('should reject command result from stale connection generation', async () => {
+      const mockSocket = createMockSocket();
+      const mockIo = createMockIo();
+      const getAgentSocket = () => mockSocket;
+      const commandId = 'cmd-stale-gen-1';
+
+      // Send command with connection generation 1
+      sendCommand(
+        'test-server',
+        { id: commandId, action: 'start', appName: 'test-app' },
+        'deploy-1',
+        getAgentSocket,
+        1 // Connection generation 1
+      );
+
+      handleCommandAck('test-server', { commandId, receivedAt: new Date() });
+
+      // Result arrives from connection generation 2 (agent reconnected)
+      await handleCommandResult(mockIo, 'test-server', {
+        commandId,
+        status: 'success',
+        message: 'Started',
+      }, 2); // Different connection generation
+
+      // Should log a warning about stale result
+      expect(mockLogger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          commandId,
+          expectedGeneration: 1,
+          actualGeneration: 2,
+        }),
+        expect.stringContaining('stale')
+      );
+
+      // Command should still be pending (not resolved by stale result)
+      expect(hasPendingCommands()).toBe(true);
+    });
+
+    it('should accept command result from same connection generation', async () => {
+      const mockSocket = createMockSocket();
+      const mockIo = createMockIo();
+      const getAgentSocket = () => mockSocket;
+      const commandId = 'cmd-same-gen-1';
+
+      // Send command with connection generation 3
+      sendCommand(
+        'test-server',
+        { id: commandId, action: 'start', appName: 'test-app' },
+        'deploy-1',
+        getAgentSocket,
+        3
+      );
+
+      handleCommandAck('test-server', { commandId, receivedAt: new Date() });
+
+      // Result arrives from same connection generation
+      await handleCommandResult(mockIo, 'test-server', {
+        commandId,
+        status: 'success',
+        message: 'Started',
+      }, 3); // Same connection generation
+
+      // Command should be resolved
+      expect(hasPendingCommands()).toBe(false);
+
+      // Status should be success
+      const status = db.prepare('SELECT status FROM command_log WHERE id = ?').get(commandId) as { status: string };
+      expect(status.status).toBe('success');
+    });
+
+    it('should handle result without generation (backwards compatibility)', async () => {
+      const mockSocket = createMockSocket();
+      const mockIo = createMockIo();
+      const getAgentSocket = () => mockSocket;
+      const commandId = 'cmd-no-gen-1';
+
+      // Send command without connection generation
+      sendCommand(
+        'test-server',
+        { id: commandId, action: 'start', appName: 'test-app' },
+        'deploy-1',
+        getAgentSocket
+        // No connection generation
+      );
+
+      handleCommandAck('test-server', { commandId, receivedAt: new Date() });
+
+      // Result arrives without generation
+      await handleCommandResult(mockIo, 'test-server', {
+        commandId,
+        status: 'success',
+      }); // No generation
+
+      // Should accept the result (backwards compatible)
+      const status = db.prepare('SELECT status FROM command_log WHERE id = ?').get(commandId) as { status: string };
+      expect(status.status).toBe('success');
+    });
+
+    it('should track connection generation in sendCommandWithResult', async () => {
+      const mockSocket = createMockSocket();
+      const mockIo = createMockIo();
+      const getAgentSocket = () => mockSocket;
+      const commandId = 'cmd-gen-track-1';
+
+      const promise = sendCommandWithResult(
+        'test-server',
+        { id: commandId, action: 'start', appName: 'test-app' },
+        getAgentSocket,
+        'deploy-1',
+        5 // Connection generation 5
+      );
+
+      handleCommandAck('test-server', { commandId, receivedAt: new Date() });
+
+      // Stale result from generation 4 should be ignored
+      await handleCommandResult(mockIo, 'test-server', {
+        commandId,
+        status: 'success',
+        message: 'From old connection',
+      }, 4);
+
+      // Promise should still be pending
+      expect(hasPendingCommands()).toBe(true);
+
+      // Now send result from correct generation
+      await handleCommandResult(mockIo, 'test-server', {
+        commandId,
+        status: 'success',
+        message: 'From current connection',
+      }, 5);
+
+      const result = await promise;
+      expect(result.message).toBe('From current connection');
+    });
+  });
+
   describe('Deployment Status Mapping', () => {
     it('should map install success to stopped status', async () => {
       const mockSocket = createMockSocket();

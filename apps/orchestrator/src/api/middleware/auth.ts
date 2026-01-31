@@ -140,14 +140,19 @@ export const Permissions = {
 /**
  * Development mode bypass - allows unauthenticated access in development
  * WARNING: Only use for routes that should be accessible during development
+ *
+ * SECURITY: This bypass requires BOTH:
+ * 1. NODE_ENV=development
+ * 2. ALLOW_DEV_AUTH_BYPASS=true
+ * AND will be disabled if production indicators are detected.
  */
 export function devBypassAuth(
   req: AuthenticatedRequest,
   res: Response,
   next: NextFunction
 ): void {
-  // In development, allow unauthenticated access but still try to authenticate
-  if (config.isDevelopment) {
+  // Check the hardened dev mode bypass config
+  if (config.devMode.bypassAuth) {
     const token = extractToken(req);
     if (token) {
       const payload = authService.verifyAccessToken(token);
@@ -169,6 +174,6 @@ export function devBypassAuth(
     return;
   }
 
-  // In production, require auth
+  // Otherwise require auth
   requireAuth(req, res, next);
 }
