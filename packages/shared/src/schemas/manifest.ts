@@ -32,6 +32,13 @@ export const DataDirectorySchema = z.object({
   description: z.string().optional(),
 });
 
+export const ConfigTemplateSchema = z.object({
+  source: z.string(),          // Template file path relative to app definition
+  destination: z.string(),     // Destination path on the target system
+  mode: z.string().optional(), // File permissions (e.g., '0644')
+  owner: z.string().optional(), // Owner (e.g., 'caddy:caddy')
+});
+
 export const ServiceRequirementSchema = z.object({
   service: z.string(),
   optional: z.boolean().optional(),
@@ -101,6 +108,10 @@ export const AppManifestSchema = z.object({
   dataDirectories: z.array(DataDirectorySchema).optional(),
   serviceUser: z.string().optional(),
   serviceGroup: z.string().optional(),
+  // Linux capabilities for the service binary (e.g., 'cap_net_bind_service+ep')
+  capabilities: z.array(z.string()).optional(),
+  // Config file templates to render and deploy
+  configTemplates: z.array(ConfigTemplateSchema).optional(),
 });
 
 export type ValidatedAppManifest = z.infer<typeof AppManifestSchema>;

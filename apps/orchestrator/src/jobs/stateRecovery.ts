@@ -43,6 +43,14 @@ interface ServerStatusRow {
 // Transient states that indicate an operation was in progress
 const TRANSIENT_STATES = ['installing', 'configuring', 'uninstalling'];
 
+interface PendingCommandRow {
+  id: string;
+  server_id: string;
+  deployment_id: string | null;
+  action: string;
+  created_at: string;
+}
+
 // Track the last recovery run
 let lastRecoveryRun: Date | null = null;
 let lastRecoveryResults: RecoveryResult[] = [];
@@ -301,6 +309,64 @@ class StateRecoveryService {
   }
 
   /**
+   * Recover commands stuck in 'pending' status.
+   * These are commands that were sent but never received a result (e.g., orchestrator crashed).
+   * Mark them as 'error' so the system doesn't wait for them indefinitely.
+   */
+  async recoverPendingCommands(): Promise<number> {
+    const db = getDb();
+
+    // Find commands that are still pending (no result received)
+    const pendingCommands = db.prepare(`
+      SELECT id, server_id, deployment_id, action, created_at
+      FROM command_log
+      WHERE status = 'pending'
+    `).all() as PendingCommandRow[];
+
+    if (pendingCommands.length === 0) {
+      logger.info('No pending commands found during recovery');
+      return 0;
+    }
+
+    logger.info({ count: pendingCommands.length }, 'Found pending commands - marking as error');
+
+    // Mark all pending commands as error
+    const result = db.prepare(`
+      UPDATE command_log
+      SET status = 'error',
+          result_message = 'Recovery: Command was pending when orchestrator restarted',
+          completed_at = CURRENT_TIMESTAMP
+      WHERE status = 'pending'
+    `).run();
+
+    // Log details about recovered commands
+    for (const cmd of pendingCommands) {
+      logger.info({
+        commandId: cmd.id,
+        serverId: cmd.server_id,
+        deploymentId: cmd.deployment_id,
+        action: cmd.action,
+        createdAt: cmd.created_at,
+      }, 'Marked pending command as error');
+    }
+
+    auditService.log({
+      action: 'pending_commands_recovery',
+      resourceType: 'system',
+      details: {
+        recoveredCount: result.changes,
+        commands: pendingCommands.map(c => ({
+          id: c.id,
+          action: c.action,
+          serverId: c.server_id,
+        })),
+      },
+    });
+
+    return result.changes;
+  }
+
+  /**
    * Get current recovery status and stuck deployments.
    */
   getRecoveryStatus(): RecoveryStatus {
@@ -337,7 +403,13 @@ export const stateRecoveryService = new StateRecoveryService();
  */
 export async function runStartupRecovery(): Promise<void> {
   try {
-    logger.info('Running deployment state recovery check');
+    logger.info('Running startup state recovery');
+
+    // Recover pending commands first (cleans up command_log)
+    const pendingCommandsRecovered = await stateRecoveryService.recoverPendingCommands();
+    logger.info({ pendingCommandsRecovered }, 'Pending command recovery complete');
+
+    // Then recover stuck deployments
     await stateRecoveryService.recoverStuckDeployments();
     logger.info('Deployment state recovery complete');
   } catch (error) {

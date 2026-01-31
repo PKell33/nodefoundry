@@ -403,8 +403,9 @@ export class Deployer {
       UPDATE deployments SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(deploymentId);
 
-    // Enable proxy route and reload Caddy
+    // Enable proxy routes (web UI and service routes) and reload Caddy
     await proxyManager.setRouteActive(deploymentId, true);
+    await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, true);
     await proxyManager.updateAndReload();
 
     // Send start command
@@ -440,8 +441,9 @@ export class Deployer {
       UPDATE deployments SET status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(deploymentId);
 
-    // Disable proxy route and reload Caddy
+    // Disable proxy routes (web UI and service routes) and reload Caddy
     await proxyManager.setRouteActive(deploymentId, false);
+    await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, false);
     await proxyManager.updateAndReload();
 
     // Send stop command

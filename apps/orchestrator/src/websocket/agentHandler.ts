@@ -1,25 +1,47 @@
 import type { Socket, Server as SocketServer } from 'socket.io';
-import { timingSafeEqual, createHash } from 'crypto';
-import { getDb, runInTransaction } from '../db/index.js';
+import { timingSafeEqual, createHmac } from 'crypto';
+import { config } from '../config.js';
+import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import { mutexManager } from '../lib/mutexManager.js';
 import { authService } from '../services/authService.js';
 import { proxyManager } from '../services/proxyManager.js';
 import { broadcastDeploymentStatus } from './index.js';
-import type { AgentStatusReport, CommandResult, CommandAck, ServerMetrics, LogResult, LogStreamLine, LogStreamStatus, MountCheckResult } from '@ownprem/shared';
+import type { AgentStatusReport, CommandResult, CommandAck, LogResult, LogStreamLine, LogStreamStatus } from '@ownprem/shared';
 
-// Type guard for MountCheckResult
-function isMountCheckResult(data: unknown): data is MountCheckResult {
-  return typeof data === 'object' && data !== null && 'mounted' in data;
-}
+// Import from modular handlers
+import {
+  handleLogResult,
+  handleLogStreamLine,
+  handleLogStreamStatus,
+  handleLogSubscription,
+  handleLogUnsubscription,
+  initClientLogSubscriptions,
+  cleanupClientLogSubscriptions,
+  cleanupPendingLogRequestsForServer,
+  clearPendingLogRequests,
+  requestLogs as requestLogsInternal,
+} from './logStreamHandler.js';
+
+import {
+  handleCommandResult,
+  handleCommandAck,
+  cleanupPendingCommandsForServer,
+  sendCommand as sendCommandInternal,
+  getPendingCommandCount,
+  abortPendingCommands,
+  hasPendingCommands,
+} from './commandDispatcher.js';
+
+import {
+  autoMountServerStorage,
+  sendMountCommand as sendMountCommandInternal,
+} from './mountHandler.js';
 
 interface AgentAuth {
   serverId?: string;
   token?: string | null;
 }
-
-// Track browser client connections
-const browserClients = new Set<Socket>();
 
 interface ServerRow {
   id: string;
@@ -34,63 +56,26 @@ interface AgentConnection {
   heartbeatInterval?: NodeJS.Timeout;
 }
 
+// Agent connections
 const connectedAgents = new Map<string, AgentConnection>();
 
-// Pending log requests - maps commandId to resolve/reject callbacks
-const pendingLogRequests = new Map<string, {
-  resolve: (result: LogResult) => void;
-  reject: (error: Error) => void;
-  timeout: NodeJS.Timeout;
-  serverId: string;
-}>();
-
-// Pending commands - maps commandId to tracking info for ack/timeout
-interface PendingCommand {
-  resolve: (result: CommandResult) => void;
-  reject: (error: Error) => void;
-  ackTimeout: NodeJS.Timeout;
-  completionTimeout?: NodeJS.Timeout;
-  acknowledged: boolean;
-  deploymentId?: string;
-  action: string;
-  serverId: string;
-}
-
-const pendingCommands = new Map<string, PendingCommand>();
-
-// Timeout configuration (in milliseconds)
-const ACK_TIMEOUT = 10000; // 10 seconds to acknowledge receipt
-
-// Completion timeouts by action type
-const COMPLETION_TIMEOUTS: Record<string, number> = {
-  install: 10 * 60 * 1000,    // 10 minutes
-  configure: 60 * 1000,        // 1 minute
-  start: 30 * 1000,            // 30 seconds
-  stop: 30 * 1000,             // 30 seconds
-  restart: 60 * 1000,          // 1 minute
-  uninstall: 2 * 60 * 1000,    // 2 minutes
-  mountStorage: 60 * 1000,        // 1 minute
-  unmountStorage: 30 * 1000,      // 30 seconds
-  checkMount: 10 * 1000,          // 10 seconds
-  configureKeepalived: 2 * 60 * 1000, // 2 minutes (may need to install package)
-  checkKeepalived: 10 * 1000,     // 10 seconds
-};
+// Browser client tracking
+const browserClients = new Set<Socket>();
+const authenticatedBrowserClients = new Set<Socket>();
 
 // Heartbeat configuration
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
 const HEARTBEAT_TIMEOUT = 90000;  // 90 seconds
 
-// Log stream subscriptions: maps streamId to { deploymentId, subscribedClients }
-interface LogStreamSubscription {
-  deploymentId: string;
-  serverId: string;
-  appName: string;
-  clients: Set<Socket>;
-}
-const activeLogStreams = new Map<string, LogStreamSubscription>();
+// Shutdown timeout
+const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
 
-// Map browser client socket to their subscribed stream IDs (for cleanup)
-const clientLogSubscriptions = new Map<Socket, Set<string>>();
+/**
+ * Get a connected agent's socket by server ID.
+ */
+function getAgentSocket(serverId: string): Socket | undefined {
+  return connectedAgents.get(serverId)?.socket;
+}
 
 export function getConnectedAgents(): Map<string, Socket> {
   const result = new Map<string, Socket>();
@@ -105,14 +90,18 @@ export function isAgentConnected(serverId: string): boolean {
 }
 
 /**
- * Hash a token for storage
+ * Hash a token for storage using HMAC-SHA256.
  */
 export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+  const hmacKey = config.tokens.hmacKey;
+  if (!hmacKey) {
+    throw new Error('Token HMAC key not configured. Set SECRETS_KEY environment variable.');
+  }
+  return createHmac('sha256', hmacKey).update(token).digest('hex');
 }
 
 /**
- * Securely compare tokens using timing-safe comparison
+ * Securely compare tokens using timing-safe comparison.
  */
 function verifyToken(providedToken: string, storedHash: string): boolean {
   const providedHash = hashToken(providedToken);
@@ -139,7 +128,6 @@ export function setupAgentHandler(io: SocketServer): void {
 
     // Check if this is an agent connection (has serverId) or browser client
     if (!serverId) {
-      // This is a browser client - validate JWT from cookie or auth header
       handleBrowserClient(io, socket, clientIp);
       return;
     }
@@ -154,16 +142,27 @@ export function setupAgentHandler(io: SocketServer): void {
       return;
     }
 
-    // Core server doesn't need a token (local connection)
-    // For other servers, verify the token
-    if (!server.is_core) {
+    // Core server requires connection from localhost
+    if (server.is_core) {
+      const isLocalhost = clientIp === '127.0.0.1' ||
+                          clientIp === '::1' ||
+                          clientIp === '::ffff:127.0.0.1' ||
+                          clientIp === 'localhost';
+
+      if (!isLocalhost) {
+        wsLogger.warn({ serverId, clientIp }, 'Core agent connection rejected: must connect from localhost');
+        socket.disconnect();
+        return;
+      }
+      wsLogger.debug({ serverId, clientIp }, 'Core agent authenticated via localhost verification');
+    } else {
       if (!token) {
         wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: missing token');
         socket.disconnect();
         return;
       }
 
-      // First, check agent_tokens table for new-style tokens with expiry support
+      // Check agent_tokens table for new-style tokens
       const tokenHash = hashToken(token);
       const agentTokenRow = db.prepare(`
         SELECT id FROM agent_tokens
@@ -172,11 +171,9 @@ export function setupAgentHandler(io: SocketServer): void {
       `).get(serverId, tokenHash) as { id: string } | undefined;
 
       if (agentTokenRow) {
-        // Valid token from agent_tokens table - update last_used_at
         db.prepare('UPDATE agent_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(agentTokenRow.id);
         wsLogger.debug({ serverId, tokenId: agentTokenRow.id }, 'Agent authenticated via agent_tokens');
       } else if (server.auth_token) {
-        // Fall back to legacy servers.auth_token field
         if (!verifyToken(token, server.auth_token)) {
           wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: invalid token');
           socket.disconnect();
@@ -192,7 +189,7 @@ export function setupAgentHandler(io: SocketServer): void {
 
     // Use mutex to safely handle connection replacement
     mutexManager.withServerLock(serverId, async () => {
-      // Disconnect existing connection for this server (prevent duplicates)
+      // Disconnect existing connection for this server
       const existingConn = connectedAgents.get(serverId);
       if (existingConn) {
         wsLogger.info({ serverId }, 'Disconnecting existing agent connection');
@@ -224,16 +221,15 @@ export function setupAgentHandler(io: SocketServer): void {
         WHERE id = ?
       `).run(serverId);
 
-      // Emit to clients that server is connected
+      // Emit to clients
       io.emit('server:connected', { serverId, timestamp: new Date() });
 
-      // Request immediate status report to sync deployment statuses
-      // This ensures the database is updated right away, not after the agent's interval
+      // Request immediate status report
       socket.emit('request_status');
       wsLogger.debug({ serverId }, 'Requested immediate status report from agent');
 
       // Check for mounts that should be auto-mounted
-      autoMountServerStorage(serverId).catch(err => {
+      autoMountServerStorage(serverId, getAgentSocket).catch(err => {
         wsLogger.error({ serverId, err }, 'Error auto-mounting storage');
       });
     });
@@ -257,29 +253,29 @@ export function setupAgentHandler(io: SocketServer): void {
       });
     });
 
-    // Handle command acknowledgment from agent
+    // Handle command acknowledgment
     socket.on('command:ack', (ack: CommandAck) => {
       handleCommandAck(serverId, ack);
     });
 
-    // Handle command results from agent
+    // Handle command results
     socket.on('command:result', (result: CommandResult) => {
       handleCommandResult(io, serverId, result).catch(err => {
         wsLogger.error({ serverId, commandId: result.commandId, err }, 'Error handling command result');
       });
     });
 
-    // Handle log results from agent
+    // Handle log results
     socket.on('logs:result', (result: LogResult) => {
       handleLogResult(serverId, result);
     });
 
-    // Handle log stream lines from agent
+    // Handle log stream lines
     socket.on('logs:stream:line', (line: LogStreamLine) => {
       handleLogStreamLine(line);
     });
 
-    // Handle log stream status from agent
+    // Handle log stream status
     socket.on('logs:stream:status', (status: LogStreamStatus) => {
       handleLogStreamStatus(serverId, status);
     });
@@ -294,13 +290,8 @@ export function setupAgentHandler(io: SocketServer): void {
       }
       connectedAgents.delete(serverId);
 
-      // Clean up pending commands for this server
       cleanupPendingCommandsForServer(serverId);
-
-      // Clean up pending log requests for this server
       cleanupPendingLogRequestsForServer(serverId);
-
-      // Clean up server mutex to prevent memory leak
       mutexManager.cleanupServerMutex(serverId);
 
       db.prepare(`
@@ -314,72 +305,64 @@ export function setupAgentHandler(io: SocketServer): void {
 }
 
 /**
- * Handle browser client WebSocket connections
+ * Handle browser client WebSocket connections.
  */
 function handleBrowserClient(io: SocketServer, socket: Socket, clientIp: string): void {
-  // Get JWT from cookie in handshake headers
   const cookies = socket.handshake.headers.cookie || '';
   const tokenMatch = cookies.match(/access_token=([^;]+)/);
   const accessToken = tokenMatch?.[1];
 
-  if (!accessToken) {
-    wsLogger.debug({ clientIp }, 'Browser client connection: no access token');
-    // Allow connection without auth for now - they just won't see anything sensitive
-    // The client will reconnect after login with proper auth
-  } else {
-    // Verify the token
+  let isAuthenticated = false;
+  let userId: string | undefined;
+
+  if (accessToken) {
     const payload = authService.verifyAccessToken(accessToken);
-    if (!payload) {
-      wsLogger.debug({ clientIp }, 'Browser client: invalid access token');
-    } else {
-      wsLogger.debug({ clientIp, userId: payload.userId }, 'Browser client authenticated');
+    if (payload) {
+      isAuthenticated = true;
+      userId = payload.userId;
+      wsLogger.debug({ clientIp, userId }, 'Browser client authenticated');
     }
   }
 
-  // Track this browser client
   browserClients.add(socket);
-  clientLogSubscriptions.set(socket, new Set());
-  wsLogger.info({ clientIp, totalClients: browserClients.size }, 'Browser client connected');
+  if (isAuthenticated) {
+    authenticatedBrowserClients.add(socket);
+    socket.join('authenticated');
+  }
+  initClientLogSubscriptions(socket);
+  wsLogger.info({ clientIp, isAuthenticated, totalClients: browserClients.size }, 'Browser client connected');
 
-  // Emit connected status to this client
-  socket.emit('connect_ack', { connected: true });
+  socket.emit('connect_ack', { connected: true, authenticated: isAuthenticated });
 
   // Handle log stream subscription
   socket.on('subscribe:logs', async (data: { deploymentId: string }) => {
-    await handleLogSubscription(socket, data.deploymentId);
+    if (!authenticatedBrowserClients.has(socket)) {
+      socket.emit('deployment:log:status', {
+        deploymentId: data.deploymentId,
+        status: 'error',
+        message: 'Authentication required to view logs',
+      });
+      wsLogger.warn({ clientIp }, 'Unauthenticated client attempted to subscribe to logs');
+      return;
+    }
+    await handleLogSubscription(socket, data.deploymentId, getAgentSocket);
   });
 
   // Handle log stream unsubscription
   socket.on('unsubscribe:logs', (data: { deploymentId: string; streamId?: string }) => {
-    handleLogUnsubscription(socket, data.streamId);
+    handleLogUnsubscription(socket, data.streamId, getAgentSocket);
   });
 
   socket.on('disconnect', (reason) => {
     browserClients.delete(socket);
-
-    // Clean up log stream subscriptions for this client
-    const clientSubs = clientLogSubscriptions.get(socket);
-    if (clientSubs) {
-      for (const streamId of clientSubs) {
-        const subscription = activeLogStreams.get(streamId);
-        if (subscription) {
-          subscription.clients.delete(socket);
-          // If no more clients, stop the stream
-          if (subscription.clients.size === 0) {
-            stopLogStreamForDeployment(streamId, subscription.serverId);
-            activeLogStreams.delete(streamId);
-          }
-        }
-      }
-      clientLogSubscriptions.delete(socket);
-    }
-
+    authenticatedBrowserClients.delete(socket);
+    cleanupClientLogSubscriptions(socket, getAgentSocket);
     wsLogger.debug({ clientIp, reason, totalClients: browserClients.size }, 'Browser client disconnected');
   });
 }
 
 /**
- * Clean up connections that haven't responded to heartbeats
+ * Clean up connections that haven't responded to heartbeats.
  */
 function cleanupStaleConnections(): void {
   const now = Date.now();
@@ -404,10 +387,13 @@ function cleanupStaleConnections(): void {
   }
 }
 
+/**
+ * Handle status report from agent.
+ */
 async function handleStatusReport(io: SocketServer, serverId: string, report: AgentStatusReport): Promise<void> {
   const db = getDb();
 
-  // Update server metrics and network info (no mutex needed - single server update)
+  // Update server metrics
   db.prepare(`
     UPDATE servers SET metrics = ?, network_info = ?, last_seen = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
     WHERE id = ?
@@ -417,13 +403,10 @@ async function handleStatusReport(io: SocketServer, serverId: string, report: Ag
     serverId
   );
 
-  // Track if any routes changed so we can reload Caddy once at the end
   let routesChanged = false;
 
-  // Update deployment statuses - use per-deployment mutex to avoid race with command results
-  // Status report only updates deployments in stable states (not installing/configuring/uninstalling)
+  // Update deployment statuses
   for (const app of report.apps) {
-    // Get deployment info for this app on this server
     const deployment = db.prepare(`
       SELECT d.id, d.status, pr.active as route_active
       FROM deployments d
@@ -434,34 +417,31 @@ async function handleStatusReport(io: SocketServer, serverId: string, report: Ag
     if (deployment) {
       const newStatus = mapAppStatusToDeploymentStatus(app.status);
       const previousStatus = deployment.status;
-      // Only consider route state if a route exists (route_active is not null)
       const hasRoute = deployment.route_active !== null;
-      const currentRouteActive = deployment.route_active === 1;
       const shouldRouteBeActive = newStatus === 'running';
 
       await mutexManager.withDeploymentLock(deployment.id, async () => {
-        // Only update if not in a transient state (command results have priority)
         const result = db.prepare(`
           UPDATE deployments SET status = ?, updated_at = CURRENT_TIMESTAMP
           WHERE id = ? AND status != 'installing' AND status != 'configuring' AND status != 'uninstalling'
         `).run(newStatus, deployment.id);
 
-        // Check if status actually changed (update was applied and status differs)
         const statusChanged = result.changes > 0 && previousStatus !== newStatus;
 
-        // Update route if needed (running → active, stopped/error → inactive)
-        // Only update if deployment has a proxy route
-        if (hasRoute && currentRouteActive !== shouldRouteBeActive) {
-          await proxyManager.setRouteActive(deployment.id, shouldRouteBeActive);
+        if (statusChanged) {
+          if (hasRoute) {
+            await proxyManager.setRouteActive(deployment.id, shouldRouteBeActive);
+            wsLogger.info({
+              deploymentId: deployment.id,
+              appName: app.name,
+              routeActive: shouldRouteBeActive,
+            }, 'Web UI route state updated based on agent status');
+          }
+
+          await proxyManager.setServiceRoutesActiveByDeployment(deployment.id, shouldRouteBeActive);
           routesChanged = true;
-          wsLogger.info({
-            deploymentId: deployment.id,
-            appName: app.name,
-            routeActive: shouldRouteBeActive,
-          }, 'Route state updated based on agent status');
         }
 
-        // Broadcast status change to UI clients (only if status actually changed)
         if (statusChanged) {
           broadcastDeploymentStatus({
             deploymentId: deployment.id,
@@ -476,7 +456,6 @@ async function handleStatusReport(io: SocketServer, serverId: string, report: Ag
     }
   }
 
-  // Reload Caddy once if any routes changed
   if (routesChanged) {
     try {
       await proxyManager.updateAndReload();
@@ -486,8 +465,7 @@ async function handleStatusReport(io: SocketServer, serverId: string, report: Ag
     }
   }
 
-  // Emit status update to clients
-  io.emit('server:status', {
+  io.to('authenticated').emit('server:status', {
     serverId,
     timestamp: report.timestamp,
     metrics: report.metrics,
@@ -498,561 +476,68 @@ async function handleStatusReport(io: SocketServer, serverId: string, report: Ag
 
 function mapAppStatusToDeploymentStatus(appStatus: string): string {
   switch (appStatus) {
-    case 'running':
-      return 'running';
-    case 'stopped':
-      return 'stopped';
-    case 'error':
-      return 'error';
-    default:
-      return 'stopped';
+    case 'running': return 'running';
+    case 'stopped': return 'stopped';
+    case 'error': return 'error';
+    default: return 'stopped';
   }
 }
 
-async function handleCommandResult(io: SocketServer, serverId: string, result: CommandResult): Promise<void> {
-  const db = getDb();
-
-  // Clean up pending command tracking
-  const pending = pendingCommands.get(result.commandId);
-  if (pending) {
-    clearTimeout(pending.ackTimeout);
-    if (pending.completionTimeout) {
-      clearTimeout(pending.completionTimeout);
-    }
-    pendingCommands.delete(result.commandId);
-
-    // Resolve the pending promise
-    if (result.status === 'success') {
-      pending.resolve(result);
-    } else {
-      pending.reject(new Error(result.message || 'Command failed'));
-    }
-  }
-
-  // Get command info to update deployment status (read before acquiring mutex)
-  const commandRow = db.prepare('SELECT deployment_id, action FROM command_log WHERE id = ?').get(result.commandId) as { deployment_id: string | null; action: string } | undefined;
-
-  // Update command log (no mutex needed - single command update)
-  db.prepare(`
-    UPDATE command_log SET status = ?, result_message = ?, completed_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(result.status, result.message || null, result.commandId);
-
-  // Update deployment status with mutex protection
-  if (commandRow?.deployment_id) {
-    await mutexManager.withDeploymentLock(commandRow.deployment_id, async () => {
-      const newStatus = getDeploymentStatusFromCommand(commandRow.action, result.status);
-      if (newStatus) {
-        db.prepare(`
-          UPDATE deployments SET status = ?, status_message = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(newStatus, result.message || null, commandRow.deployment_id);
-      }
-    });
-  }
-
-  // Emit result to clients
-  io.emit('command:result', {
-    serverId,
-    ...result,
-  });
-
-  wsLogger.info({
-    commandId: result.commandId,
-    serverId,
-    status: result.status,
-    message: result.message,
-  }, 'Command completed');
-}
-
-function getDeploymentStatusFromCommand(action: string, resultStatus: string): string | null {
-  if (resultStatus === 'error') {
-    return 'error';
-  }
-
-  switch (action) {
-    case 'install':
-      return resultStatus === 'success' ? 'stopped' : 'error';
-    case 'configure':
-      return resultStatus === 'success' ? 'stopped' : 'error';
-    case 'start':
-      return resultStatus === 'success' ? 'running' : 'error';
-    case 'stop':
-      return resultStatus === 'success' ? 'stopped' : 'error';
-    case 'uninstall':
-      return null; // Deployment is deleted, not updated
-    default:
-      return null;
-  }
-}
-
-function handleLogResult(serverId: string, result: LogResult): void {
-  const pending = pendingLogRequests.get(result.commandId);
-  if (pending) {
-    clearTimeout(pending.timeout);
-    pendingLogRequests.delete(result.commandId);
-    pending.resolve(result);
-  }
-
-  wsLogger.debug({
-    commandId: result.commandId,
-    serverId,
-    status: result.status,
-    lineCount: result.logs.length,
-  }, 'Log result received');
-}
-
-/**
- * Handle a log stream line from an agent - forward to subscribed clients
- */
-function handleLogStreamLine(line: LogStreamLine): void {
-  const subscription = activeLogStreams.get(line.streamId);
-  if (!subscription) {
-    return; // No subscribers for this stream
-  }
-
-  // Forward to all subscribed browser clients
-  for (const clientSocket of subscription.clients) {
-    clientSocket.emit('deployment:log', {
-      deploymentId: subscription.deploymentId,
-      streamId: line.streamId,
-      line: line.line,
-      timestamp: line.timestamp,
-    });
-  }
-}
-
-/**
- * Handle log stream status from an agent
- */
-function handleLogStreamStatus(serverId: string, status: LogStreamStatus): void {
-  wsLogger.info({
-    streamId: status.streamId,
-    appName: status.appName,
-    status: status.status,
-    message: status.message,
-  }, 'Log stream status update');
-
-  const subscription = activeLogStreams.get(status.streamId);
-  if (!subscription) {
-    return;
-  }
-
-  // Notify subscribed clients
-  for (const clientSocket of subscription.clients) {
-    clientSocket.emit('deployment:log:status', {
-      deploymentId: subscription.deploymentId,
-      streamId: status.streamId,
-      status: status.status,
-      message: status.message,
-    });
-  }
-
-  // Clean up if stream stopped or errored
-  if (status.status === 'stopped' || status.status === 'error') {
-    // Clean up client tracking
-    for (const clientSocket of subscription.clients) {
-      const clientSubs = clientLogSubscriptions.get(clientSocket);
-      if (clientSubs) {
-        clientSubs.delete(status.streamId);
-      }
-    }
-    activeLogStreams.delete(status.streamId);
-  }
-}
-
-/**
- * Handle browser client subscribing to log stream
- */
-async function handleLogSubscription(clientSocket: Socket, deploymentId: string): Promise<void> {
-  const db = getDb();
-
-  // Look up deployment to get serverId and appName
-  const deployment = db.prepare(`
-    SELECT d.id, d.server_id, d.app_name, s.agent_status
-    FROM deployments d
-    JOIN servers s ON d.server_id = s.id
-    WHERE d.id = ?
-  `).get(deploymentId) as { id: string; server_id: string; app_name: string; agent_status: string } | undefined;
-
-  if (!deployment) {
-    clientSocket.emit('deployment:log:status', {
-      deploymentId,
-      status: 'error',
-      message: 'Deployment not found',
-    });
-    return;
-  }
-
-  if (deployment.agent_status !== 'online') {
-    clientSocket.emit('deployment:log:status', {
-      deploymentId,
-      status: 'error',
-      message: 'Server is offline',
-    });
-    return;
-  }
-
-  // Generate a unique stream ID
-  const streamId = `${deploymentId}-${Date.now()}`;
-
-  // Check if there's already an active stream for this deployment
-  for (const [existingStreamId, sub] of activeLogStreams) {
-    if (sub.deploymentId === deploymentId) {
-      // Reuse existing stream - just add this client
-      sub.clients.add(clientSocket);
-      const clientSubs = clientLogSubscriptions.get(clientSocket);
-      if (clientSubs) {
-        clientSubs.add(existingStreamId);
-      }
-
-      clientSocket.emit('deployment:log:status', {
-        deploymentId,
-        streamId: existingStreamId,
-        status: 'started',
-        message: 'Joined existing stream',
-      });
-      return;
-    }
-  }
-
-  // Create new subscription
-  activeLogStreams.set(streamId, {
-    deploymentId,
-    serverId: deployment.server_id,
-    appName: deployment.app_name,
-    clients: new Set([clientSocket]),
-  });
-
-  const clientSubs = clientLogSubscriptions.get(clientSocket);
-  if (clientSubs) {
-    clientSubs.add(streamId);
-  }
-
-  // Send command to agent to start streaming
-  const agentConn = connectedAgents.get(deployment.server_id);
-  if (!agentConn) {
-    activeLogStreams.delete(streamId);
-    clientSocket.emit('deployment:log:status', {
-      deploymentId,
-      status: 'error',
-      message: 'Agent not connected',
-    });
-    return;
-  }
-
-  // Look up service name from manifest if available
-  let serviceName = deployment.app_name;
-  try {
-    const manifest = db.prepare(`
-      SELECT manifest FROM app_manifests WHERE name = ?
-    `).get(deployment.app_name) as { manifest: string } | undefined;
-
-    if (manifest) {
-      const parsed = JSON.parse(manifest.manifest);
-      if (parsed.logging?.serviceName) {
-        serviceName = parsed.logging.serviceName;
-      }
-    }
-  } catch {
-    // Ignore manifest lookup errors, use default
-  }
-
-  agentConn.socket.emit('command', {
-    id: streamId,
-    action: 'streamLogs',
-    appName: deployment.app_name,
-    payload: {
-      logOptions: {
-        serviceName,
-      },
-    },
-  });
-
-  wsLogger.info({
-    streamId,
-    deploymentId,
-    serverId: deployment.server_id,
-    appName: deployment.app_name,
-  }, 'Started log stream subscription');
-}
-
-/**
- * Handle browser client unsubscribing from log stream
- */
-function handleLogUnsubscription(clientSocket: Socket, streamId?: string): void {
-  const clientSubs = clientLogSubscriptions.get(clientSocket);
-  if (!clientSubs) return;
-
-  // If no streamId provided, unsubscribe from all
-  const streamsToCheck = streamId ? [streamId] : [...clientSubs];
-
-  for (const sid of streamsToCheck) {
-    const subscription = activeLogStreams.get(sid);
-    if (!subscription) continue;
-
-    subscription.clients.delete(clientSocket);
-    clientSubs.delete(sid);
-
-    // If no more clients, stop the stream
-    if (subscription.clients.size === 0) {
-      stopLogStreamForDeployment(sid, subscription.serverId);
-      activeLogStreams.delete(sid);
-    }
-  }
-}
-
-/**
- * Send stop command to agent to stop streaming logs
- */
-function stopLogStreamForDeployment(streamId: string, serverId: string): void {
-  const agentConn = connectedAgents.get(serverId);
-  if (!agentConn) return;
-
-  agentConn.socket.emit('command', {
-    id: streamId,
-    action: 'stopStreamLogs',
-    appName: '', // Not needed for stop
-  });
-
-  wsLogger.info({ streamId, serverId }, 'Stopped log stream');
-}
-
-/**
- * Handle command acknowledgment from agent.
- * Clears the ack timeout and starts the completion timeout.
- */
-function handleCommandAck(serverId: string, ack: CommandAck): void {
-  const pending = pendingCommands.get(ack.commandId);
-  if (!pending) {
-    wsLogger.debug({ serverId, commandId: ack.commandId }, 'Received ack for unknown command');
-    return;
-  }
-
-  if (pending.serverId !== serverId) {
-    wsLogger.warn({ serverId, commandId: ack.commandId, expectedServerId: pending.serverId },
-      'Received ack from wrong server');
-    return;
-  }
-
-  // Clear ack timeout
-  clearTimeout(pending.ackTimeout);
-  pending.acknowledged = true;
-
-  // Start completion timeout
-  const completionTimeoutMs = COMPLETION_TIMEOUTS[pending.action] || 60000;
-  pending.completionTimeout = setTimeout(() => {
-    const stillPending = pendingCommands.get(ack.commandId);
-    if (stillPending) {
-      pendingCommands.delete(ack.commandId);
-
-      // Update command log to timeout status
-      const db = getDb();
-      db.prepare(`
-        UPDATE command_log SET status = 'timeout', result_message = 'Command completion timed out', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(ack.commandId);
-
-      // Update deployment status if applicable
-      if (stillPending.deploymentId) {
-        db.prepare(`
-          UPDATE deployments SET status = 'error', status_message = 'Command timed out waiting for completion', updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(stillPending.deploymentId);
-      }
-
-      stillPending.reject(new Error(`Command '${pending.action}' timed out waiting for completion`));
-      wsLogger.error({
-        commandId: ack.commandId,
-        serverId,
-        action: pending.action,
-        timeoutMs: completionTimeoutMs,
-      }, 'Command completion timeout');
-    }
-  }, completionTimeoutMs);
-
-  wsLogger.info({
-    commandId: ack.commandId,
-    serverId,
-    action: pending.action,
-    receivedAt: ack.receivedAt,
-  }, 'Command acknowledged');
-}
-
-/**
- * Clean up pending commands for a server (e.g., on disconnect).
- */
-function cleanupPendingCommandsForServer(serverId: string): void {
-  for (const [commandId, pending] of pendingCommands) {
-    if (pending.serverId === serverId) {
-      clearTimeout(pending.ackTimeout);
-      if (pending.completionTimeout) {
-        clearTimeout(pending.completionTimeout);
-      }
-      pendingCommands.delete(commandId);
-      pending.reject(new Error('Agent disconnected'));
-
-      // Update command log
-      const db = getDb();
-      db.prepare(`
-        UPDATE command_log SET status = 'error', result_message = 'Agent disconnected', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ? AND status = 'pending'
-      `).run(commandId);
-    }
-  }
-}
-
-/**
- * Clean up pending log requests for a server (e.g., on disconnect).
- */
-function cleanupPendingLogRequestsForServer(serverId: string): void {
-  for (const [commandId, pending] of pendingLogRequests) {
-    if (pending.serverId === serverId) {
-      clearTimeout(pending.timeout);
-      pendingLogRequests.delete(commandId);
-      pending.reject(new Error('Agent disconnected'));
-    }
-  }
-}
+// ==================
+// Exported API
+// ==================
 
 export async function requestLogs(
   serverId: string,
   appName: string,
   options: { lines?: number; since?: string; grep?: string; logPath?: string; serviceName?: string } = {},
   timeoutMs: number = 30000
-): Promise<LogResult> {
-  const conn = connectedAgents.get(serverId);
-  if (!conn) {
-    throw new Error(`Agent not connected: ${serverId}`);
+): Promise<import('@ownprem/shared').LogResult> {
+  return requestLogsInternal(serverId, appName, options, timeoutMs, getAgentSocket);
+}
+
+export function sendCommand(
+  serverId: string,
+  command: { id: string; action: string; appName: string; payload?: unknown },
+  deploymentId?: string
+): boolean {
+  return sendCommandInternal(serverId, command, deploymentId, getAgentSocket);
+}
+
+export function sendMountCommand(
+  serverId: string,
+  command: {
+    id: string;
+    action: 'mountStorage' | 'unmountStorage' | 'checkMount';
+    appName: string;
+    payload: { mountOptions: import('@ownprem/shared').MountCommandPayload };
   }
-
-  const commandId = `logs-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingLogRequests.delete(commandId);
-      reject(new Error('Log request timed out'));
-    }, timeoutMs);
-
-    pendingLogRequests.set(commandId, { resolve, reject, timeout, serverId });
-
-    conn.socket.emit('command', {
-      id: commandId,
-      action: 'getLogs',
-      appName,
-      payload: { logOptions: options },
-    });
-
-    wsLogger.info({ serverId, appName, commandId }, 'Log request sent');
-  });
+): Promise<import('@ownprem/shared').CommandResult> {
+  return sendMountCommandInternal(serverId, command, getAgentSocket);
 }
 
-/**
- * Send a command to an agent.
- * Sets up acknowledgment and completion timeouts.
- * Returns true if the command was sent, false if the agent is not connected.
- */
-export function sendCommand(serverId: string, command: { id: string; action: string; appName: string; payload?: unknown }, deploymentId?: string): boolean {
-  const conn = connectedAgents.get(serverId);
-  if (!conn) {
-    wsLogger.warn({ serverId }, 'Cannot send command: agent not connected');
-    return false;
-  }
-
-  // Log the command with deployment_id for status tracking
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO command_log (id, server_id, deployment_id, action, payload, status, created_at)
-    VALUES (?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-  `).run(command.id, serverId, deploymentId || null, command.action, JSON.stringify({ appName: command.appName, ...(command.payload || {}) }));
-
-  // Set up ack timeout
-  const ackTimeout = setTimeout(() => {
-    const pending = pendingCommands.get(command.id);
-    if (pending && !pending.acknowledged) {
-      pendingCommands.delete(command.id);
-
-      // Update command log to timeout status
-      db.prepare(`
-        UPDATE command_log SET status = 'timeout', result_message = 'Agent did not acknowledge command', completed_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(command.id);
-
-      // Update deployment status if applicable
-      if (deploymentId) {
-        db.prepare(`
-          UPDATE deployments SET status = 'error', status_message = 'Agent did not acknowledge command', updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(deploymentId);
-      }
-
-      wsLogger.error({
-        commandId: command.id,
-        serverId,
-        action: command.action,
-      }, 'Command acknowledgment timeout');
-    }
-  }, ACK_TIMEOUT);
-
-  // Track the pending command
-  pendingCommands.set(command.id, {
-    resolve: () => {}, // Will be called by handleCommandResult
-    reject: (err) => {
-      wsLogger.error({ commandId: command.id, serverId, err }, 'Command rejected');
-    },
-    ackTimeout,
-    acknowledged: false,
-    deploymentId,
-    action: command.action,
-    serverId,
-  });
-
-  conn.socket.emit('command', command);
-  wsLogger.info({ serverId, action: command.action, appName: command.appName, commandId: command.id }, 'Command sent');
-  return true;
-}
-
-// Shutdown timeout for graceful shutdown
-const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
-
-/**
- * Get the count of pending commands.
- */
-export function getPendingCommandCount(): number {
-  return pendingCommands.size;
-}
+export { getPendingCommandCount };
 
 /**
  * Gracefully shutdown the agent handler.
- * Broadcasts shutdown to all agents and waits for pending commands.
  */
-export async function shutdownAgentHandler(io: import('socket.io').Server): Promise<void> {
+export async function shutdownAgentHandler(io: SocketServer): Promise<void> {
   wsLogger.info('Starting graceful shutdown of agent handler');
 
-  // Broadcast shutdown notification to all agents
   io.emit('server:shutdown', { timestamp: new Date() });
   wsLogger.info({ agentCount: connectedAgents.size }, 'Broadcast shutdown notification to agents');
 
-  // Wait for pending commands to complete (with timeout)
+  // Wait for pending commands
   const startTime = Date.now();
-  while (pendingCommands.size > 0) {
+  while (hasPendingCommands()) {
     const elapsed = Date.now() - startTime;
     if (elapsed >= SHUTDOWN_TIMEOUT) {
-      wsLogger.warn({ pendingCount: pendingCommands.size }, 'Shutdown timeout - aborting pending commands');
-
-      // Reject remaining pending commands
-      for (const [commandId, pending] of pendingCommands) {
-        clearTimeout(pending.ackTimeout);
-        if (pending.completionTimeout) {
-          clearTimeout(pending.completionTimeout);
-        }
-        pending.reject(new Error('Orchestrator shutting down'));
-        pendingCommands.delete(commandId);
-      }
+      wsLogger.warn({ pendingCount: getPendingCommandCount() }, 'Shutdown timeout - aborting pending commands');
+      abortPendingCommands();
       break;
     }
 
-    wsLogger.debug({ pendingCount: pendingCommands.size, elapsed }, 'Waiting for pending commands');
+    wsLogger.debug({ pendingCount: getPendingCommandCount(), elapsed }, 'Waiting for pending commands');
     await new Promise(resolve => setTimeout(resolve, 500));
   }
 
@@ -1066,204 +551,7 @@ export async function shutdownAgentHandler(io: import('socket.io').Server): Prom
   }
   connectedAgents.clear();
 
-  // Clear pending log requests
-  for (const [commandId, pending] of pendingLogRequests) {
-    clearTimeout(pending.timeout);
-    pending.reject(new Error('Orchestrator shutting down'));
-  }
-  pendingLogRequests.clear();
+  clearPendingLogRequests();
 
   wsLogger.info('Agent handler shutdown complete');
-}
-
-// ==================
-// Mount Storage Support
-// ==================
-
-interface ServerMountRow {
-  id: string;
-  server_id: string;
-  mount_id: string;
-  mount_point: string;
-  options: string | null;
-  purpose: string | null;
-  auto_mount: number;
-  status: string;
-  mount_type: string;
-  source: string;
-  default_options: string | null;
-}
-
-interface MountCredentialsRow {
-  data: string;
-}
-
-/**
- * Send a mount-related command to an agent and wait for result.
- * Returns a promise that resolves with the command result.
- */
-export function sendMountCommand(
-  serverId: string,
-  command: {
-    id: string;
-    action: 'mountStorage' | 'unmountStorage' | 'checkMount';
-    appName: string;
-    payload: { mountOptions: import('@ownprem/shared').MountCommandPayload };
-  }
-): Promise<import('@ownprem/shared').CommandResult> {
-  const conn = connectedAgents.get(serverId);
-  if (!conn) {
-    return Promise.reject(new Error(`Agent not connected: ${serverId}`));
-  }
-
-  return new Promise((resolve, reject) => {
-    // Set up ack timeout
-    const ackTimeout = setTimeout(() => {
-      const pending = pendingCommands.get(command.id);
-      if (pending && !pending.acknowledged) {
-        pendingCommands.delete(command.id);
-        reject(new Error('Agent did not acknowledge command'));
-      }
-    }, ACK_TIMEOUT);
-
-    // Track the pending command
-    pendingCommands.set(command.id, {
-      resolve,
-      reject,
-      ackTimeout,
-      acknowledged: false,
-      deploymentId: undefined,
-      action: command.action,
-      serverId,
-    });
-
-    conn.socket.emit('command', command);
-    wsLogger.info({ serverId, action: command.action, commandId: command.id }, 'Mount command sent');
-  });
-}
-
-/**
- * Auto-mount storage for a server on agent connect.
- * Checks all server_mounts with auto_mount=true and mounts them if not already mounted.
- */
-async function autoMountServerStorage(serverId: string): Promise<void> {
-  const db = getDb();
-
-  // Get all mounts for this server that should be auto-mounted
-  const serverMounts = db.prepare(`
-    SELECT sm.*, m.mount_type, m.source, m.default_options
-    FROM server_mounts sm
-    JOIN mounts m ON m.id = sm.mount_id
-    WHERE sm.server_id = ? AND sm.auto_mount = TRUE
-  `).all(serverId) as ServerMountRow[];
-
-  if (serverMounts.length === 0) {
-    return;
-  }
-
-  wsLogger.info({ serverId, mountCount: serverMounts.length }, 'Auto-mounting storage');
-
-  for (const sm of serverMounts) {
-    try {
-      // First check if already mounted
-      const checkId = `check-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const checkResult = await sendMountCommand(serverId, {
-        id: checkId,
-        action: 'checkMount',
-        appName: 'storage',
-        payload: {
-          mountOptions: {
-            mountType: sm.mount_type as 'nfs' | 'cifs',
-            source: sm.source,
-            mountPoint: sm.mount_point,
-          },
-        },
-      });
-
-      if (checkResult.status === 'success' && isMountCheckResult(checkResult.data) && checkResult.data.mounted) {
-        // Already mounted, update status and usage
-        db.prepare(`
-          UPDATE server_mounts
-          SET status = 'mounted',
-              usage_bytes = ?,
-              total_bytes = ?,
-              last_checked = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(
-          checkResult.data.usage?.used ?? null,
-          checkResult.data.usage?.total ?? null,
-          sm.id
-        );
-        wsLogger.info({ serverId, mountPoint: sm.mount_point }, 'Mount already mounted');
-        continue;
-      }
-
-      // Not mounted, need to mount
-      db.prepare(`
-        UPDATE server_mounts SET status = 'mounting', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(sm.id);
-
-      // Get credentials for CIFS mounts
-      let credentials: { username: string; password: string; domain?: string } | undefined;
-      if (sm.mount_type === 'cifs') {
-        const { secretsManager } = await import('../services/secretsManager.js');
-        const credRow = db.prepare(`
-          SELECT data FROM mount_credentials WHERE mount_id = ?
-        `).get(sm.mount_id) as MountCredentialsRow | undefined;
-
-        if (credRow) {
-          credentials = secretsManager.decrypt(credRow.data) as typeof credentials;
-        }
-      }
-
-      const mountId = `mount-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-      const mountResult = await sendMountCommand(serverId, {
-        id: mountId,
-        action: 'mountStorage',
-        appName: 'storage',
-        payload: {
-          mountOptions: {
-            mountType: sm.mount_type as 'nfs' | 'cifs',
-            source: sm.source,
-            mountPoint: sm.mount_point,
-            options: sm.options || sm.default_options || undefined,
-            credentials,
-          },
-        },
-      });
-
-      if (mountResult.status === 'success') {
-        db.prepare(`
-          UPDATE server_mounts
-          SET status = 'mounted',
-              status_message = NULL,
-              last_checked = CURRENT_TIMESTAMP,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(sm.id);
-        wsLogger.info({ serverId, mountPoint: sm.mount_point }, 'Mount successful');
-      } else {
-        db.prepare(`
-          UPDATE server_mounts
-          SET status = 'error',
-              status_message = ?,
-              updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(mountResult.message || 'Mount failed', sm.id);
-        wsLogger.error({ serverId, mountPoint: sm.mount_point, error: mountResult.message }, 'Mount failed');
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      db.prepare(`
-        UPDATE server_mounts
-        SET status = 'error',
-            status_message = ?,
-            updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(errorMessage, sm.id);
-      wsLogger.error({ serverId, mountPoint: sm.mount_point, err }, 'Error auto-mounting storage');
-    }
-  }
 }

@@ -102,15 +102,17 @@ export class ProxyManager {
     const existing = db.prepare('SELECT id FROM proxy_routes WHERE path = ?').get(path) as { id: string } | undefined;
 
     if (existing) {
+      // Create route as inactive - will be activated when app is started
       db.prepare(`
-        UPDATE proxy_routes SET upstream = ?, active = TRUE, deployment_id = ?
+        UPDATE proxy_routes SET upstream = ?, active = FALSE, deployment_id = ?
         WHERE id = ?
       `).run(upstream, deploymentId, existing.id);
     } else {
       const id = uuidv4();
+      // Create route as inactive - will be activated when app is started
       db.prepare(`
         INSERT INTO proxy_routes (id, deployment_id, path, upstream, active)
-        VALUES (?, ?, ?, ?, TRUE)
+        VALUES (?, ?, ?, ?, FALSE)
       `).run(id, deploymentId, path, upstream);
     }
   }
@@ -175,9 +177,10 @@ export class ProxyManager {
     const existing = db.prepare('SELECT id FROM service_routes WHERE service_id = ?').get(serviceId) as { id: string } | undefined;
 
     if (existing) {
+      // Create route as inactive - will be activated when app is started
       db.prepare(`
         UPDATE service_routes
-        SET route_type = ?, external_path = ?, external_port = ?, upstream_host = ?, upstream_port = ?, active = TRUE
+        SET route_type = ?, external_path = ?, external_port = ?, upstream_host = ?, upstream_port = ?, active = FALSE
         WHERE id = ?
       `).run(routeType, externalPath || null, externalPort || null, upstreamHost, upstreamPort, existing.id);
 
@@ -195,9 +198,10 @@ export class ProxyManager {
       };
     }
 
+    // Create route as inactive - will be activated when app is started
     db.prepare(`
       INSERT INTO service_routes (id, service_id, route_type, external_path, external_port, upstream_host, upstream_port, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
+      VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)
     `).run(id, serviceId, routeType, externalPath || null, externalPort || null, upstreamHost, upstreamPort);
 
     return {
@@ -230,6 +234,14 @@ export class ProxyManager {
   async setServiceRouteActive(serviceId: string, active: boolean): Promise<void> {
     const db = getDb();
     db.prepare('UPDATE service_routes SET active = ? WHERE service_id = ?').run(active ? 1 : 0, serviceId);
+  }
+
+  async setServiceRoutesActiveByDeployment(deploymentId: string, active: boolean): Promise<void> {
+    const db = getDb();
+    db.prepare(`
+      UPDATE service_routes SET active = ?
+      WHERE service_id IN (SELECT id FROM services WHERE deployment_id = ?)
+    `).run(active ? 1 : 0, deploymentId);
   }
 
   async getActiveServiceRoutes(): Promise<ServiceRoute[]> {

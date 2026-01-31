@@ -30,6 +30,7 @@ export type AuditAction =
   | 'config_exported'
   | 'config_imported'
   | 'state_recovery'
+  | 'pending_commands_recovery'
   | 'mount_created'
   | 'mount_updated'
   | 'mount_deleted'
