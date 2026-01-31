@@ -18,8 +18,11 @@ interface MetricsChartProps {
   showLegend?: boolean;
 }
 
+// Empty array constant to avoid creating new references in selectors
+const EMPTY_METRICS_HISTORY: { timestamp: number; cpu: number; memoryPercent: number; memoryUsed: number; diskPercent: number; diskUsed: number }[] = [];
+
 const MetricsChart = memo(function MetricsChart({ serverId, height = 200, showLegend = true }: MetricsChartProps) {
-  const history = useMetricsStore((state) => state.history[serverId] || []);
+  const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
   const { theme } = useThemeStore();
 
   const data = useMemo(() => formatMetricsForChart(history), [history]);
@@ -132,7 +135,7 @@ export const SingleMetricChart = memo(function SingleMetricChart({
   color,
   height = 100,
 }: SingleMetricChartProps) {
-  const history = useMetricsStore((state) => state.history[serverId] || []);
+  const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
   const { theme } = useThemeStore();
 
   const data = useMemo(() => formatMetricsForChart(history), [history]);
@@ -216,7 +219,7 @@ export const Sparkline = memo(function Sparkline({
   width = 90,
   total,
 }: SparklineProps) {
-  const history = useMetricsStore((state) => state.history[serverId] || []);
+  const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
   const { theme } = useThemeStore();
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
