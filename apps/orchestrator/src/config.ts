@@ -79,7 +79,8 @@ function validateEnvConfig(isDev: boolean): void {
 
 const nodeEnv = process.env.NODE_ENV;
 if (!nodeEnv) {
-  console.warn('WARNING: NODE_ENV not set - defaulting to production mode for safety');
+  // Using process.stderr.write for early startup warning (before logger is available)
+  process.stderr.write('WARNING: NODE_ENV not set - defaulting to production mode for safety\n');
 }
 const isDevelopment = nodeEnv === 'development';
 

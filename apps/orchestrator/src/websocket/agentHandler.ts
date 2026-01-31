@@ -1,23 +1,33 @@
+/**
+ * Agent handler - main WebSocket connection management.
+ * Coordinates agent connections, authentication, and event routing.
+ */
+
 import type { Socket, Server as SocketServer } from 'socket.io';
-import { timingSafeEqual, createHmac } from 'crypto';
-import { config } from '../config.js';
 import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import { mutexManager } from '../lib/mutexManager.js';
-import { authService } from '../services/authService.js';
-import { proxyManager } from '../services/proxyManager.js';
-import { broadcastDeploymentStatus } from './index.js';
-import type { AgentStatusReport, CommandResult, CommandAck, LogResult, LogStreamLine, LogStreamStatus } from '@ownprem/shared';
+import type {
+  AgentStatusReport,
+  CommandResult,
+  CommandAck,
+  LogResult,
+  LogStreamLine,
+  LogStreamStatus,
+} from '@ownprem/shared';
+import { isValidAgentAuth } from '@ownprem/shared';
 
-// Import from modular handlers
+// Import from extracted modules
+import type { AgentConnection } from './agentTypes.js';
+import { HEARTBEAT_INTERVAL, HEARTBEAT_TIMEOUT, SHUTDOWN_TIMEOUT } from './agentTypes.js';
+import { authenticateAgent, hashToken } from './agentAuth.js';
+import { handleStatusReport } from './statusHandler.js';
+import { handleBrowserClient } from './browserClient.js';
+
 import {
   handleLogResult,
   handleLogStreamLine,
   handleLogStreamStatus,
-  handleLogSubscription,
-  handleLogUnsubscription,
-  initClientLogSubscriptions,
-  cleanupClientLogSubscriptions,
   cleanupPendingLogRequestsForServer,
   clearPendingLogRequests,
   requestLogs as requestLogsInternal,
@@ -39,37 +49,11 @@ import {
   sendMountCommand as sendMountCommandInternal,
 } from './mountHandler.js';
 
-interface AgentAuth {
-  serverId?: string;
-  token?: string | null;
-}
-
-interface ServerRow {
-  id: string;
-  auth_token: string | null;
-  is_core: number;
-}
-
-interface AgentConnection {
-  socket: Socket;
-  serverId: string;
-  lastSeen: Date;
-  heartbeatInterval?: NodeJS.Timeout;
-}
-
 // Agent connections
 const connectedAgents = new Map<string, AgentConnection>();
 
-// Browser client tracking
-const browserClients = new Set<Socket>();
-const authenticatedBrowserClients = new Set<Socket>();
-
-// Heartbeat configuration
-const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const HEARTBEAT_TIMEOUT = 90000;  // 90 seconds
-
-// Shutdown timeout
-const SHUTDOWN_TIMEOUT = 30000; // 30 seconds
+// Re-export hashToken for external use
+export { hashToken } from './agentAuth.js';
 
 /**
  * Get a connected agent's socket by server ID.
@@ -91,29 +75,39 @@ export function isAgentConnected(serverId: string): boolean {
 }
 
 /**
- * Hash a token for storage using HMAC-SHA256.
+ * Throws an error if the agent for the given server is not connected.
+ * Use this to guard operations that require an active agent connection.
  */
-export function hashToken(token: string): string {
-  const hmacKey = config.tokens.hmacKey;
-  if (!hmacKey) {
-    throw new Error('Token HMAC key not configured. Set SECRETS_KEY environment variable.');
+export function requireAgentConnected(serverId: string): void {
+  if (!connectedAgents.has(serverId)) {
+    throw new Error(`Server ${serverId} is not connected`);
   }
-  return createHmac('sha256', hmacKey).update(token).digest('hex');
 }
 
 /**
- * Securely compare tokens using timing-safe comparison.
+ * Clean up connections that haven't responded to heartbeats.
  */
-function verifyToken(providedToken: string, storedHash: string): boolean {
-  const providedHash = hashToken(providedToken);
-  const providedBuffer = Buffer.from(providedHash, 'hex');
-  const storedBuffer = Buffer.from(storedHash, 'hex');
+function cleanupStaleConnections(): void {
+  const now = Date.now();
+  const db = getDb();
 
-  if (providedBuffer.length !== storedBuffer.length) {
-    return false;
+  for (const [serverId, conn] of connectedAgents) {
+    const lastSeenMs = conn.lastSeen.getTime();
+    if (now - lastSeenMs > HEARTBEAT_TIMEOUT) {
+      wsLogger.warn({ serverId, lastSeen: conn.lastSeen }, 'Disconnecting stale agent connection');
+
+      if (conn.heartbeatInterval) {
+        clearInterval(conn.heartbeatInterval);
+      }
+      conn.socket.disconnect();
+      connectedAgents.delete(serverId);
+
+      db.prepare(`
+        UPDATE servers SET agent_status = 'offline', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(serverId);
+    }
   }
-
-  return timingSafeEqual(providedBuffer, storedBuffer);
 }
 
 export function setupAgentHandler(io: SocketServer): void {
@@ -123,70 +117,25 @@ export function setupAgentHandler(io: SocketServer): void {
   }, HEARTBEAT_INTERVAL);
 
   io.on('connection', (socket: Socket) => {
-    const auth = socket.handshake.auth as AgentAuth;
-    const { serverId, token } = auth;
     const clientIp = socket.handshake.address;
 
-    // Check if this is an agent connection (has serverId) or browser client
-    if (!serverId) {
-      handleBrowserClient(io, socket, clientIp);
+    // Validate auth payload structure
+    if (!isValidAgentAuth(socket.handshake.auth)) {
+      // Not a valid agent auth - treat as browser client
+      handleBrowserClient(io, socket, clientIp, getAgentSocket);
       return;
     }
 
-    // Validate auth token
-    const db = getDb();
-    const server = db.prepare('SELECT id, auth_token, is_core FROM servers WHERE id = ?').get(serverId) as ServerRow | undefined;
+    const { serverId, token } = socket.handshake.auth;
 
-    if (!server) {
-      wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: unknown server');
+    // Authenticate the agent
+    const authResult = authenticateAgent(serverId, token ?? undefined, clientIp);
+    if (!authResult.success) {
       socket.disconnect();
       return;
     }
 
-    // Core server requires connection from localhost
-    if (server.is_core) {
-      const isLocalhost = clientIp === '127.0.0.1' ||
-                          clientIp === '::1' ||
-                          clientIp === '::ffff:127.0.0.1' ||
-                          clientIp === 'localhost';
-
-      if (!isLocalhost) {
-        wsLogger.warn({ serverId, clientIp }, 'Core agent connection rejected: must connect from localhost');
-        socket.disconnect();
-        return;
-      }
-      wsLogger.debug({ serverId, clientIp }, 'Core agent authenticated via localhost verification');
-    } else {
-      if (!token) {
-        wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: missing token');
-        socket.disconnect();
-        return;
-      }
-
-      // Check agent_tokens table for new-style tokens
-      const tokenHash = hashToken(token);
-      const agentTokenRow = db.prepare(`
-        SELECT id FROM agent_tokens
-        WHERE server_id = ? AND token_hash = ?
-          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-      `).get(serverId, tokenHash) as { id: string } | undefined;
-
-      if (agentTokenRow) {
-        db.prepare('UPDATE agent_tokens SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?').run(agentTokenRow.id);
-        wsLogger.debug({ serverId, tokenId: agentTokenRow.id }, 'Agent authenticated via agent_tokens');
-      } else if (server.auth_token) {
-        if (!verifyToken(token, server.auth_token)) {
-          wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: invalid token');
-          socket.disconnect();
-          return;
-        }
-        wsLogger.debug({ serverId }, 'Agent authenticated via legacy auth_token');
-      } else {
-        wsLogger.warn({ serverId, clientIp }, 'Agent connection rejected: no valid token');
-        socket.disconnect();
-        return;
-      }
-    }
+    const db = getDb();
 
     // Use mutex to safely handle connection replacement
     mutexManager.withServerLock(serverId, async () => {
@@ -303,185 +252,6 @@ export function setupAgentHandler(io: SocketServer): void {
       io.emit('server:disconnected', { serverId, timestamp: new Date() });
     });
   });
-}
-
-/**
- * Handle browser client WebSocket connections.
- */
-function handleBrowserClient(io: SocketServer, socket: Socket, clientIp: string): void {
-  const cookies = socket.handshake.headers.cookie || '';
-  const tokenMatch = cookies.match(/access_token=([^;]+)/);
-  const accessToken = tokenMatch?.[1];
-
-  let isAuthenticated = false;
-  let userId: string | undefined;
-
-  if (accessToken) {
-    const payload = authService.verifyAccessToken(accessToken);
-    if (payload) {
-      isAuthenticated = true;
-      userId = payload.userId;
-      wsLogger.debug({ clientIp, userId }, 'Browser client authenticated');
-    }
-  }
-
-  browserClients.add(socket);
-  if (isAuthenticated) {
-    authenticatedBrowserClients.add(socket);
-    socket.join('authenticated');
-  }
-  initClientLogSubscriptions(socket);
-  wsLogger.info({ clientIp, isAuthenticated, totalClients: browserClients.size }, 'Browser client connected');
-
-  socket.emit('connect_ack', { connected: true, authenticated: isAuthenticated });
-
-  // Handle log stream subscription
-  socket.on('subscribe:logs', async (data: { deploymentId: string }) => {
-    if (!authenticatedBrowserClients.has(socket)) {
-      socket.emit('deployment:log:status', {
-        deploymentId: data.deploymentId,
-        status: 'error',
-        message: 'Authentication required to view logs',
-      });
-      wsLogger.warn({ clientIp }, 'Unauthenticated client attempted to subscribe to logs');
-      return;
-    }
-    await handleLogSubscription(socket, data.deploymentId, getAgentSocket);
-  });
-
-  // Handle log stream unsubscription
-  socket.on('unsubscribe:logs', (data: { deploymentId: string; streamId?: string }) => {
-    handleLogUnsubscription(socket, data.streamId, getAgentSocket);
-  });
-
-  socket.on('disconnect', (reason) => {
-    browserClients.delete(socket);
-    authenticatedBrowserClients.delete(socket);
-    cleanupClientLogSubscriptions(socket, getAgentSocket);
-    wsLogger.debug({ clientIp, reason, totalClients: browserClients.size }, 'Browser client disconnected');
-  });
-}
-
-/**
- * Clean up connections that haven't responded to heartbeats.
- */
-function cleanupStaleConnections(): void {
-  const now = Date.now();
-  const db = getDb();
-
-  for (const [serverId, conn] of connectedAgents) {
-    const lastSeenMs = conn.lastSeen.getTime();
-    if (now - lastSeenMs > HEARTBEAT_TIMEOUT) {
-      wsLogger.warn({ serverId, lastSeen: conn.lastSeen }, 'Disconnecting stale agent connection');
-
-      if (conn.heartbeatInterval) {
-        clearInterval(conn.heartbeatInterval);
-      }
-      conn.socket.disconnect();
-      connectedAgents.delete(serverId);
-
-      db.prepare(`
-        UPDATE servers SET agent_status = 'offline', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(serverId);
-    }
-  }
-}
-
-/**
- * Handle status report from agent.
- */
-async function handleStatusReport(io: SocketServer, serverId: string, report: AgentStatusReport): Promise<void> {
-  const db = getDb();
-
-  // Update server metrics
-  db.prepare(`
-    UPDATE servers SET metrics = ?, network_info = ?, last_seen = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ?
-  `).run(
-    JSON.stringify(report.metrics),
-    report.networkInfo ? JSON.stringify(report.networkInfo) : null,
-    serverId
-  );
-
-  let routesChanged = false;
-
-  // Update deployment statuses
-  for (const app of report.apps) {
-    const deployment = db.prepare(`
-      SELECT d.id, d.status, pr.active as route_active
-      FROM deployments d
-      LEFT JOIN proxy_routes pr ON pr.deployment_id = d.id
-      WHERE d.server_id = ? AND d.app_name = ?
-    `).get(serverId, app.name) as { id: string; status: string; route_active: number | null } | undefined;
-
-    if (deployment) {
-      const newStatus = mapAppStatusToDeploymentStatus(app.status);
-      const previousStatus = deployment.status;
-      const hasRoute = deployment.route_active !== null;
-      const shouldRouteBeActive = newStatus === 'running';
-
-      await mutexManager.withDeploymentLock(deployment.id, async () => {
-        const result = db.prepare(`
-          UPDATE deployments SET status = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ? AND status != 'installing' AND status != 'configuring' AND status != 'uninstalling'
-        `).run(newStatus, deployment.id);
-
-        const statusChanged = result.changes > 0 && previousStatus !== newStatus;
-
-        if (statusChanged) {
-          if (hasRoute) {
-            await proxyManager.setRouteActive(deployment.id, shouldRouteBeActive);
-            wsLogger.info({
-              deploymentId: deployment.id,
-              appName: app.name,
-              routeActive: shouldRouteBeActive,
-            }, 'Web UI route state updated based on agent status');
-          }
-
-          await proxyManager.setServiceRoutesActiveByDeployment(deployment.id, shouldRouteBeActive);
-          routesChanged = true;
-        }
-
-        if (statusChanged) {
-          broadcastDeploymentStatus({
-            deploymentId: deployment.id,
-            appName: app.name,
-            serverId,
-            status: newStatus,
-            previousStatus,
-            routeActive: hasRoute ? shouldRouteBeActive : undefined,
-          });
-        }
-      });
-    }
-  }
-
-  if (routesChanged) {
-    try {
-      await proxyManager.updateAndReload();
-      wsLogger.info({ serverId }, 'Caddy reloaded after route updates from status report');
-    } catch (err) {
-      wsLogger.error({ serverId, err }, 'Failed to reload Caddy after route updates');
-    }
-  }
-
-  io.to('authenticated').emit('server:status', {
-    serverId,
-    timestamp: report.timestamp,
-    metrics: report.metrics,
-    networkInfo: report.networkInfo,
-    apps: report.apps,
-  });
-}
-
-function mapAppStatusToDeploymentStatus(appStatus: string): string {
-  switch (appStatus) {
-    case 'running': return 'running';
-    case 'stopped': return 'stopped';
-    case 'error': return 'error';
-    default: return 'stopped';
-  }
 }
 
 // ==================

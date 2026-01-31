@@ -258,7 +258,7 @@ class ConfigExportService {
       `).all() as GroupRow[];
 
       const memberRows = db.prepare(`
-        SELECT user_id, group_id, role FROM group_members
+        SELECT user_id, group_id, role FROM user_groups
       `).all() as GroupMemberRow[];
 
       groups = groupRows.map(row => ({
@@ -593,17 +593,17 @@ class ConfigExportService {
         for (const group of configData.groups || []) {
           for (const member of group.members || []) {
             const existingMember = db.prepare(
-              'SELECT user_id FROM group_members WHERE user_id = ? AND group_id = ?'
+              'SELECT user_id FROM user_groups WHERE user_id = ? AND group_id = ?'
             ).get(member.userId, group.id);
 
             if (!existingMember) {
               db.prepare(`
-                INSERT INTO group_members (user_id, group_id, role, created_at)
+                INSERT INTO user_groups (user_id, group_id, role, created_at)
                 VALUES (?, ?, ?, CURRENT_TIMESTAMP)
               `).run(member.userId, group.id, member.role);
             } else if (overwrite) {
               db.prepare(`
-                UPDATE group_members SET role = ? WHERE user_id = ? AND group_id = ?
+                UPDATE user_groups SET role = ? WHERE user_id = ? AND group_id = ?
               `).run(member.role, member.userId, group.id);
             }
           }

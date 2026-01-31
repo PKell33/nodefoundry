@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS deployments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_deployments_group ON deployments(group_id);
+CREATE INDEX IF NOT EXISTS idx_deployments_server ON deployments(server_id);
 
 -- Secrets (encrypted)
 CREATE TABLE IF NOT EXISTS secrets (
@@ -66,6 +67,7 @@ CREATE TABLE IF NOT EXISTS services (
 );
 
 CREATE INDEX IF NOT EXISTS idx_services_name ON services(service_name);
+CREATE INDEX IF NOT EXISTS idx_services_deployment ON services(deployment_id);
 
 -- Proxy routes (for web UIs)
 CREATE TABLE IF NOT EXISTS proxy_routes (

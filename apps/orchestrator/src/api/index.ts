@@ -121,7 +121,8 @@ export function createApi(): express.Application {
       db.prepare('SELECT 1').get();
       checks.database = { status: 'healthy', latency: Date.now() - start };
     } catch (err) {
-      checks.database = { status: 'unhealthy', message: err instanceof Error ? err.message : 'Unknown error' };
+      // Don't expose internal error details in health check response
+      checks.database = { status: 'unhealthy', message: 'Database check failed' };
       allHealthy = false;
     }
 
@@ -136,7 +137,8 @@ export function createApi(): express.Application {
         message: `${agentCount} agent(s) connected: ${agentIds.join(', ') || 'none'}`,
       };
     } catch (err) {
-      checks.agents = { status: 'unhealthy', message: err instanceof Error ? err.message : 'Unknown error' };
+      // Don't expose internal error details in health check response
+      checks.agents = { status: 'unhealthy', message: 'Agent check failed' };
       allHealthy = false;
     }
 
@@ -149,7 +151,8 @@ export function createApi(): express.Application {
         message: `Mutexes: ${stats.serverMutexes} servers, ${stats.deploymentMutexes} deployments`,
       };
     } catch (err) {
-      checks.resources = { status: 'unhealthy', message: err instanceof Error ? err.message : 'Unknown error' };
+      // Don't expose internal error details in health check response
+      checks.resources = { status: 'unhealthy', message: 'Resource check failed' };
     }
 
     const status = allHealthy ? 200 : 503;

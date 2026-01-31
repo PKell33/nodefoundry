@@ -1,6 +1,7 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { setupAgentHandler, shutdownAgentHandler } from './agentHandler.js';
+import { wsLogger } from '../lib/logger.js';
 
 let io: SocketServer | null = null;
 
@@ -14,7 +15,7 @@ export function createWebSocket(httpServer: HttpServer): SocketServer {
 
   setupAgentHandler(io);
 
-  console.log('WebSocket server initialized');
+  wsLogger.info('WebSocket server initialized');
   return io;
 }
 

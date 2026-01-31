@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { readFile, access } from 'fs/promises';
 import { constants } from 'fs';
 import path from 'path';
+import { apiLogger } from '../../lib/logger.js';
 
 const router = Router();
 
@@ -48,7 +49,7 @@ router.get('/ca', async (_req, res) => {
     res.setHeader('Content-Disposition', 'attachment; filename="ownprem-ca.crt"');
     res.send(cert);
   } catch (err) {
-    console.error('Error reading CA certificate:', err);
+    apiLogger.error({ err }, 'Error reading CA certificate');
     res.status(500).json({
       error: {
         code: 'CA_READ_ERROR',

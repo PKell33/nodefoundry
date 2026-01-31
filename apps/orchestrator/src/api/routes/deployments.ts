@@ -11,6 +11,7 @@ import { authService } from '../../services/authService.js';
 import { requestLogs } from '../../websocket/agentHandler.js';
 import { parsePaginationParams, paginateOrReturnAll } from '../../lib/pagination.js';
 import { validateUserConfig } from '../../services/configValidator.js';
+import { apiLogger } from '../../lib/logger.js';
 import type { AppManifest } from '@ownprem/shared';
 
 // Infer the validated query type from the schema
@@ -422,7 +423,7 @@ router.get('/:id/connection-info', requireAuth, validateParams(schemas.idParam),
     try {
       secrets = await secretsManager.getSecrets(deployment.id);
     } catch (err) {
-      console.warn('Failed to decrypt secrets for deployment', deployment.id, err);
+      apiLogger.warn({ err, deploymentId: deployment.id }, 'Failed to decrypt secrets for deployment');
       // Continue without credentials - they may need to be regenerated
     }
 

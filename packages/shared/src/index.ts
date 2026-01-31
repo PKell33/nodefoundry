@@ -5,6 +5,7 @@ export * from './types/deployment.js';
 export * from './types/service.js';
 export * from './types/commands.js';
 export * from './types/mount.js';
+export * from './types/socketEvents.js';
 
 // Schemas
 export * from './schemas/manifest.js';

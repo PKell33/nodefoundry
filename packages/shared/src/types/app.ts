@@ -30,6 +30,9 @@ export interface AppManifest {
 
   configSchema: ConfigField[];
 
+  /** Configuration file templates to render during installation */
+  configTemplates?: ConfigTemplate[];
+
   resources?: {
     minMemory?: string;
     minDisk?: string;
@@ -110,6 +113,21 @@ export interface ConfigField {
   generated?: boolean;
   secret?: boolean;
   inheritFrom?: string;
+}
+
+/**
+ * Configuration template for rendering config files from templates.
+ * Used to define source template files and their destination paths.
+ */
+export interface ConfigTemplate {
+  /** Template file path relative to app definition directory */
+  source: string;
+  /** Destination path on the target system */
+  destination: string;
+  /** File permissions (e.g., '0644') */
+  mode?: string;
+  /** Owner in user:group format (e.g., 'caddy:caddy') */
+  owner?: string;
 }
 
 export type AppCategory = AppManifest['category'];

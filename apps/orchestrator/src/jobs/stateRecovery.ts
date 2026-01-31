@@ -1,6 +1,7 @@
 import { getDb } from '../db/index.js';
 import { isAgentConnected, sendCommand } from '../websocket/agentHandler.js';
 import { mutexManager } from '../lib/mutexManager.js';
+import { updateDeploymentStatus } from '../lib/deploymentHelpers.js';
 import { auditService } from '../services/auditService.js';
 import logger from '../lib/logger.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -156,10 +157,11 @@ class StateRecoveryService {
 
       if (!serverOnline) {
         // Server is offline - mark deployment as error
-        db.prepare(`
-          UPDATE deployments SET status = 'error', status_message = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(`Recovery: Server offline, previous state was '${deployment.status}'`, deploymentId);
+        updateDeploymentStatus(
+          deploymentId,
+          'error',
+          `Recovery: Server offline, previous state was '${deployment.status}'`
+        );
 
         return {
           deploymentId,
@@ -191,10 +193,7 @@ class StateRecoveryService {
           message = `Recovery: App not found after incomplete '${deployment.status}' operation`;
         }
 
-        db.prepare(`
-          UPDATE deployments SET status = ?, status_message = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(newStatus, message, deploymentId);
+        updateDeploymentStatus(deploymentId, newStatus as any, message);
 
         return {
           deploymentId,
@@ -232,10 +231,7 @@ class StateRecoveryService {
           statusMessage = `Recovery: Unknown transient state '${deployment.status}'`;
       }
 
-      db.prepare(`
-        UPDATE deployments SET status = ?, status_message = ?, updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(newStatus, statusMessage, deploymentId);
+      updateDeploymentStatus(deploymentId, newStatus as any, statusMessage);
 
       return {
         deploymentId,

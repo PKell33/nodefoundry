@@ -2,9 +2,10 @@ import type { Socket, Server as SocketServer } from 'socket.io';
 import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import { mutexManager } from '../lib/mutexManager.js';
+import { updateDeploymentStatus } from '../lib/deploymentHelpers.js';
 import { proxyManager } from '../services/proxyManager.js';
 import { broadcastDeploymentStatus } from './index.js';
-import type { CommandResult, CommandAck } from '@ownprem/shared';
+import type { CommandResult, CommandAck, DeploymentStatus } from '@ownprem/shared';
 
 // Pending commands - maps commandId to tracking info for ack/timeout
 export interface PendingCommand {
@@ -82,14 +83,12 @@ export async function handleCommandResult(io: SocketServer, serverId: string, re
   `).run(result.status, result.message || null, result.commandId);
 
   // Update deployment status with mutex protection (only if command was pending)
-  if (pending && commandRow?.deployment_id) {
-    await mutexManager.withDeploymentLock(commandRow.deployment_id, async () => {
+  const deploymentIdFromCommand = commandRow?.deployment_id;
+  if (pending && deploymentIdFromCommand) {
+    await mutexManager.withDeploymentLock(deploymentIdFromCommand, async () => {
       const newStatus = getDeploymentStatusFromCommand(commandRow.action, result.status);
       if (newStatus) {
-        db.prepare(`
-          UPDATE deployments SET status = ?, status_message = ?, updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(newStatus, result.message || null, commandRow.deployment_id);
+        updateDeploymentStatus(deploymentIdFromCommand, newStatus, result.message);
       }
     });
   }
@@ -111,7 +110,7 @@ export async function handleCommandResult(io: SocketServer, serverId: string, re
 /**
  * Map command action and result to deployment status.
  */
-function getDeploymentStatusFromCommand(action: string, resultStatus: string): string | null {
+function getDeploymentStatusFromCommand(action: string, resultStatus: string): DeploymentStatus | null {
   if (resultStatus === 'error') {
     return 'error';
   }
@@ -169,10 +168,7 @@ export function handleCommandAck(serverId: string, ack: CommandAck): void {
 
       // Update deployment status if applicable
       if (stillPending.deploymentId) {
-        db.prepare(`
-          UPDATE deployments SET status = 'error', status_message = 'Command timed out waiting for completion', updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(stillPending.deploymentId);
+        updateDeploymentStatus(stillPending.deploymentId, 'error', 'Command timed out waiting for completion');
       }
 
       stillPending.reject(new Error(`Command '${pending.action}' timed out waiting for completion`));
@@ -269,10 +265,7 @@ export function sendCommand(
 
       // Update deployment status if applicable
       if (deploymentId) {
-        db.prepare(`
-          UPDATE deployments SET status = 'error', status_message = 'Agent did not acknowledge command', updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-        `).run(deploymentId);
+        updateDeploymentStatus(deploymentId, 'error', 'Agent did not acknowledge command');
       }
 
       wsLogger.error({
@@ -339,10 +332,7 @@ export function sendCommandWithResult(
 
         // Update deployment status if applicable
         if (deploymentId) {
-          db.prepare(`
-            UPDATE deployments SET status = 'error', status_message = 'Agent did not acknowledge command', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-          `).run(deploymentId);
+          updateDeploymentStatus(deploymentId, 'error', 'Agent did not acknowledge command');
         }
 
         reject(new Error('Agent did not acknowledge command'));

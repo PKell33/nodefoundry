@@ -7,6 +7,7 @@ import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
 import { auditService } from '../../services/auditService.js';
 import { secretsManager } from '../../services/secretsManager.js';
 import { sendMountCommand, isAgentConnected } from '../../websocket/agentHandler.js';
+import { apiLogger } from '../../lib/logger.js';
 import type { Mount, ServerMount, ServerMountWithDetails, MountType, MountStatus } from '@ownprem/shared';
 
 const router = Router();
@@ -373,12 +374,14 @@ router.post('/servers/:id/mount', requireAuth, canManageMounts, validateParams(s
       res.json(rowToServerMountWithDetails(updatedRow));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      // Log full error for debugging, but don't expose internal details to client
+      apiLogger.error({ err, serverMountId: req.params.id }, 'Mount operation failed');
       db.prepare(`
         UPDATE server_mounts
         SET status = 'error', status_message = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(errorMessage, req.params.id);
-      throw createError(`Mount failed: ${errorMessage}`, 500, 'MOUNT_FAILED');
+      throw createError('Mount operation failed. Check server logs for details.', 500, 'MOUNT_FAILED');
     }
   } catch (err) {
     next(err);
@@ -469,12 +472,14 @@ router.post('/servers/:id/unmount', requireAuth, canManageMounts, validateParams
       res.json(rowToServerMountWithDetails(updatedRow));
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
+      // Log full error for debugging, but don't expose internal details to client
+      apiLogger.error({ err, serverMountId: req.params.id }, 'Unmount operation failed');
       db.prepare(`
         UPDATE server_mounts
         SET status = 'error', status_message = ?, updated_at = CURRENT_TIMESTAMP
         WHERE id = ?
       `).run(errorMessage, req.params.id);
-      throw createError(`Unmount failed: ${errorMessage}`, 500, 'UNMOUNT_FAILED');
+      throw createError('Unmount operation failed. Check server logs for details.', 500, 'UNMOUNT_FAILED');
     }
   } catch (err) {
     next(err);

@@ -7,10 +7,13 @@ import { serviceRegistry } from './serviceRegistry.js';
 import { dependencyResolver } from './dependencyResolver.js';
 import { proxyManager } from './proxyManager.js';
 import { caddyHAManager } from './caddyHAManager.js';
-import { sendCommand, sendCommandAndWait, isAgentConnected } from '../websocket/agentHandler.js';
+import { sendCommand, sendCommandAndWait, requireAgentConnected } from '../websocket/agentHandler.js';
 import { mutexManager } from '../lib/mutexManager.js';
 import logger from '../lib/logger.js';
+import { setDeploymentStatus, updateDeploymentStatus } from '../lib/deploymentHelpers.js';
 import { auditService } from './auditService.js';
+import { getAppInfo, checkCanUninstall, validateInstall } from './deploymentValidator.js';
+import { startDeployment, stopDeployment, restartDeployment } from './deploymentLifecycle.js';
 import type { AppManifest, Deployment, DeploymentStatus, ConfigFile } from '@ownprem/shared';
 
 // CA certificate paths to check (in order of preference)
@@ -63,56 +66,11 @@ export class Deployer {
     const db = getDb();
 
     // Check if agent is connected
-    if (!isAgentConnected(serverId)) {
-      throw new Error(`Server ${serverId} is not connected`);
-    }
+    requireAgentConnected(serverId);
 
-    // Get app manifest
-    const appRow = db.prepare('SELECT * FROM app_registry WHERE name = ?').get(appName) as AppRegistryRow | undefined;
-    if (!appRow) {
-      throw new Error(`App ${appName} not found in registry`);
-    }
-    const manifest = JSON.parse(appRow.manifest) as AppManifest;
-    const isSingleton = appRow.singleton === 1;
-
-    // Check for existing deployment on this server
-    const existing = db.prepare('SELECT id FROM deployments WHERE server_id = ? AND app_name = ?').get(serverId, appName);
-    if (existing) {
-      throw new Error(`App ${appName} is already deployed on ${serverId}`);
-    }
-
-    // Check singleton constraint (only one instance allowed across all servers)
-    if (isSingleton) {
-      const existingAny = db.prepare('SELECT server_id FROM deployments WHERE app_name = ?').get(appName) as { server_id: string } | undefined;
-      if (existingAny) {
-        const serverName = db.prepare('SELECT name FROM servers WHERE id = ?').get(existingAny.server_id) as { name: string } | undefined;
-        throw new Error(`App ${appName} is a singleton and is already deployed on ${serverName?.name || existingAny.server_id}`);
-      }
-    }
-
-    // Check for conflicts with already installed apps
-    if (manifest.conflicts && manifest.conflicts.length > 0) {
-      const placeholders = manifest.conflicts.map(() => '?').join(',');
-      const conflicting = db.prepare(`
-        SELECT app_name FROM deployments
-        WHERE server_id = ? AND app_name IN (${placeholders})
-      `).get(serverId, ...manifest.conflicts) as { app_name: string } | undefined;
-
-      if (conflicting) {
-        throw new Error(`Cannot install ${appName}: conflicts with ${conflicting.app_name} already installed on this server`);
-      }
-    }
-
-    // Validate dependencies
-    const validation = await dependencyResolver.validate(manifest, serverId);
-    if (!validation.valid) {
-      throw new Error(`Dependency validation failed: ${validation.errors.join(', ')}`);
-    }
-
-    // Log warnings
-    for (const warning of validation.warnings) {
-      console.warn(`[${appName}] ${warning}`);
-    }
+    // Run all pre-install validations
+    const { appInfo } = await validateInstall(serverId, appName);
+    const manifest = appInfo.manifest;
 
     // Resolve full config (user config + dependencies + defaults)
     const resolvedConfig = await dependencyResolver.resolve(manifest, serverId, userConfig);
@@ -363,13 +321,16 @@ export class Deployer {
       throw new Error('Deployment not found');
     }
 
-    if (!isAgentConnected(deployment.serverId)) {
-      throw new Error(`Server ${deployment.serverId} is not connected`);
-    }
+    requireAgentConnected(deployment.serverId);
 
     // Get manifest
     const appRow = db.prepare('SELECT manifest FROM app_registry WHERE name = ?').get(deployment.appName) as AppRegistryRow;
-    const manifest = JSON.parse(appRow.manifest) as AppManifest;
+    let manifest: AppManifest;
+    try {
+      manifest = JSON.parse(appRow.manifest) as AppManifest;
+    } catch (e) {
+      throw new Error(`Failed to parse manifest for app ${deployment.appName}: ${e instanceof Error ? e.message : String(e)}`);
+    }
 
     // Merge config
     const mergedConfig = { ...deployment.config, ...newConfig };
@@ -405,46 +366,7 @@ export class Deployer {
     if (!deployment) {
       throw new Error('Deployment not found');
     }
-
-    if (!isAgentConnected(deployment.serverId)) {
-      throw new Error(`Server ${deployment.serverId} is not connected`);
-    }
-
-    const db = getDb();
-
-    // Enable proxy routes (web UI and service routes) and reload Caddy
-    await proxyManager.setRouteActive(deploymentId, true);
-    await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, true);
-    const caddySuccess = await proxyManager.updateAndReload();
-
-    if (!caddySuccess) {
-      // Revert route state on Caddy failure
-      await proxyManager.setRouteActive(deploymentId, false);
-      await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, false);
-      logger.error({ deploymentId }, 'Failed to update Caddy configuration during start');
-      throw new Error('Failed to update proxy configuration. App may not be accessible.');
-    }
-
-    db.prepare(`
-      UPDATE deployments SET status = 'running', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `).run(deploymentId);
-
-    // Send start command
-    const commandId = uuidv4();
-    sendCommand(deployment.serverId, {
-      id: commandId,
-      action: 'start',
-      appName: deployment.appName,
-    }, deploymentId);
-
-    auditService.log({
-      action: 'deployment_started',
-      resourceType: 'deployment',
-      resourceId: deploymentId,
-      details: { appName: deployment.appName, serverId: deployment.serverId },
-    });
-
-    return (await this.getDeployment(deploymentId))!;
+    return startDeployment(deployment, this.getDeployment.bind(this));
   }
 
   async stop(deploymentId: string): Promise<Deployment> {
@@ -452,43 +374,7 @@ export class Deployer {
     if (!deployment) {
       throw new Error('Deployment not found');
     }
-
-    if (!isAgentConnected(deployment.serverId)) {
-      throw new Error(`Server ${deployment.serverId} is not connected`);
-    }
-
-    const db = getDb();
-    db.prepare(`
-      UPDATE deployments SET status = 'stopped', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `).run(deploymentId);
-
-    // Disable proxy routes (web UI and service routes) and reload Caddy
-    await proxyManager.setRouteActive(deploymentId, false);
-    await proxyManager.setServiceRoutesActiveByDeployment(deploymentId, false);
-    const caddySuccess = await proxyManager.updateAndReload();
-
-    if (!caddySuccess) {
-      // Log warning but don't fail stop - stopping the app is more important
-      // The route will be disabled in DB even if Caddy didn't reload
-      logger.warn({ deploymentId }, 'Failed to update Caddy configuration during stop. Routes may remain active until next reload.');
-    }
-
-    // Send stop command
-    const commandId = uuidv4();
-    sendCommand(deployment.serverId, {
-      id: commandId,
-      action: 'stop',
-      appName: deployment.appName,
-    }, deploymentId);
-
-    auditService.log({
-      action: 'deployment_stopped',
-      resourceType: 'deployment',
-      resourceId: deploymentId,
-      details: { appName: deployment.appName, serverId: deployment.serverId },
-    });
-
-    return (await this.getDeployment(deploymentId))!;
+    return stopDeployment(deployment, this.getDeployment.bind(this));
   }
 
   async restart(deploymentId: string): Promise<Deployment> {
@@ -496,27 +382,7 @@ export class Deployer {
     if (!deployment) {
       throw new Error('Deployment not found');
     }
-
-    if (!isAgentConnected(deployment.serverId)) {
-      throw new Error(`Server ${deployment.serverId} is not connected`);
-    }
-
-    // Send restart command
-    const commandId = uuidv4();
-    sendCommand(deployment.serverId, {
-      id: commandId,
-      action: 'restart',
-      appName: deployment.appName,
-    }, deploymentId);
-
-    auditService.log({
-      action: 'deployment_restarted',
-      resourceType: 'deployment',
-      resourceId: deploymentId,
-      details: { appName: deployment.appName, serverId: deployment.serverId },
-    });
-
-    return deployment;
+    return restartDeployment(deployment);
   }
 
   async uninstall(deploymentId: string): Promise<void> {
@@ -525,24 +391,15 @@ export class Deployer {
       throw new Error('Deployment not found');
     }
 
-    if (!isAgentConnected(deployment.serverId)) {
-      throw new Error(`Server ${deployment.serverId} is not connected`);
-    }
+    requireAgentConnected(deployment.serverId);
 
     const db = getDb();
 
     // Check if this is a mandatory app on the core server
-    const appRow = db.prepare('SELECT mandatory FROM app_registry WHERE name = ?').get(deployment.appName) as { mandatory: number } | undefined;
-    const server = db.prepare('SELECT is_core FROM servers WHERE id = ?').get(deployment.serverId) as { is_core: number } | undefined;
-
-    if (appRow?.mandatory === 1 && server?.is_core === 1) {
-      throw new Error(`App ${deployment.appName} is mandatory and cannot be uninstalled from the core server`);
-    }
+    checkCanUninstall(deployment.appName, deployment.serverId);
 
     // Update status to uninstalling first
-    db.prepare(`
-      UPDATE deployments SET status = 'uninstalling', updated_at = CURRENT_TIMESTAMP WHERE id = ?
-    `).run(deploymentId);
+    setDeploymentStatus(deploymentId, 'uninstalling');
 
     // Send uninstall command
     const commandId = uuidv4();
@@ -620,24 +477,39 @@ export class Deployer {
   }
 
   async updateStatus(deploymentId: string, status: DeploymentStatus, message?: string): Promise<void> {
-    const db = getDb();
-    db.prepare(`
-      UPDATE deployments SET status = ?, status_message = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(status, message || null, deploymentId);
+    updateDeploymentStatus(deploymentId, status, message);
   }
 
   private rowToDeployment(row: DeploymentRow): Deployment {
+    let config: Record<string, unknown>;
+    let torAddresses: Record<string, string> | undefined;
+
+    try {
+      config = JSON.parse(row.config);
+    } catch (e) {
+      logger.error({ deploymentId: row.id, error: e }, 'Failed to parse deployment config JSON');
+      config = {}; // Fallback to empty config
+    }
+
+    if (row.tor_addresses) {
+      try {
+        torAddresses = JSON.parse(row.tor_addresses);
+      } catch (e) {
+        logger.error({ deploymentId: row.id, error: e }, 'Failed to parse tor_addresses JSON');
+        torAddresses = undefined;
+      }
+    }
+
     return {
       id: row.id,
       serverId: row.server_id,
       appName: row.app_name,
       groupId: row.group_id || undefined,
       version: row.version,
-      config: JSON.parse(row.config),
+      config,
       status: row.status as DeploymentStatus,
       statusMessage: row.status_message || undefined,
-      torAddresses: row.tor_addresses ? JSON.parse(row.tor_addresses) : undefined,
+      torAddresses,
       installedAt: new Date(row.installed_at),
       updatedAt: new Date(row.updated_at),
     };

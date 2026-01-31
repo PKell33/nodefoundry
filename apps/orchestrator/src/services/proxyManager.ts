@@ -1,86 +1,50 @@
-import { getDb } from '../db/index.js';
-import { v4 as uuidv4 } from 'uuid';
-import { createHash } from 'crypto';
+/**
+ * ProxyManager - facade for proxy route management.
+ * Coordinates web UI routes, service routes, and Caddy configuration.
+ */
+
 import type { AppManifest, ServiceDefinition } from '@ownprem/shared';
 import { config } from '../config.js';
-import { withRetry, isNetworkError, isRetryableStatus } from '../lib/retry.js';
+import { createFireAndForgetDebounce } from '../lib/debounce.js';
 import logger from '../lib/logger.js';
 
-interface ProxyRoute {
-  id: string;
-  path: string;
-  upstream: string;
-  appName: string;
-  serverName: string;
-}
+// Import from extracted modules
+import type { ProxyRoute, ServiceRoute } from './proxy/proxyTypes.js';
+import {
+  registerWebUiRoute,
+  unregisterWebUiRoute,
+  setWebUiRouteActive,
+  getActiveWebUiRoutes,
+} from './proxy/webUiRoutes.js';
+import {
+  registerServiceRoute as registerServiceRouteInternal,
+  unregisterServiceRoutes as unregisterServiceRoutesInternal,
+  unregisterServiceRoutesByDeployment as unregisterServiceRoutesByDeploymentInternal,
+  setServiceRouteActive as setServiceRouteActiveInternal,
+  setServiceRoutesActiveByDeployment as setServiceRoutesActiveByDeploymentInternal,
+  getActiveServiceRoutes,
+  getServiceRoute as getServiceRouteInternal,
+} from './proxy/serviceRoutes.js';
+import {
+  createCaddyState,
+  generateCaddyJsonConfig,
+  pushConfigToCaddy,
+  resetCaddyState as resetCaddyStateInternal,
+  getCaddyStatus as getCaddyStatusInternal,
+  generateDevCaddyfile,
+} from './proxy/caddyConfig.js';
 
-interface ServiceRoute {
-  id: string;
-  serviceId: string;
-  serviceName: string;
-  routeType: 'http' | 'tcp';
-  externalPath?: string;
-  externalPort?: number;
-  upstreamHost: string;
-  upstreamPort: number;
-  appName: string;
-  serverName: string;
-}
-
-interface ProxyRouteRow {
-  id: string;
-  deployment_id: string;
-  path: string;
-  upstream: string;
-  active: number;
-}
-
-interface ServiceRouteRow {
-  id: string;
-  service_id: string;
-  service_name: string;
-  route_type: string;
-  external_path: string | null;
-  external_port: number | null;
-  upstream_host: string;
-  upstream_port: number;
-  app_name: string;
-  server_name: string;
-}
-
-interface DeploymentWithManifest {
-  id: string;
-  server_id: string;
-  app_name: string;
-  status: string;
-  host: string | null;
-  manifest: string;
-  server_name: string;
-}
-
-interface CADeploymentRow {
-  id: string;
-  server_id: string;
-  status: string;
-  config: string;
-  host: string | null;
-  is_core: number;
-}
-
-// Port range for TCP service proxying
-const TCP_PORT_RANGE_START = 50000;
-const TCP_PORT_RANGE_END = 50100;
+// Re-export types for consumers
+export type { ProxyRoute, ServiceRoute } from './proxy/proxyTypes.js';
 
 export class ProxyManager {
   private apiPort: number;
   private domain: string;
   private caddyAdminUrl: string;
-  private lastConfigHash: string | null = null;
-  // Store the last successfully applied config for recovery
-  private lastGoodConfig: object | null = null;
-  // Track consecutive failures for circuit breaker pattern
-  private consecutiveFailures: number = 0;
-  private static readonly MAX_CONSECUTIVE_FAILURES = 3;
+  private caddyState = createCaddyState();
+
+  // Debounced reload for coalescing rapid route changes
+  public scheduleReload: () => void;
 
   constructor(
     apiPort: number = config.port,
@@ -90,66 +54,32 @@ export class ProxyManager {
     this.apiPort = apiPort;
     this.domain = domain;
     this.caddyAdminUrl = caddyAdminUrl;
+
+    // Create debounced reload function (2 second delay)
+    // This coalesces multiple route changes into a single Caddy reload
+    this.scheduleReload = createFireAndForgetDebounce(
+      () => this.updateAndReload(),
+      2000,
+      (err) => logger.error({ err }, 'Failed to reload Caddy after debounced update')
+    );
   }
 
   // ==================== Web UI Routes ====================
 
   async registerRoute(deploymentId: string, manifest: AppManifest, serverHost: string): Promise<void> {
-    if (!manifest.webui?.enabled) {
-      return;
-    }
-
-    const db = getDb();
-    const path = manifest.webui.basePath;
-    const host = serverHost || '127.0.0.1';
-    const upstream = `http://${host}:${manifest.webui.port}`;
-
-    const existing = db.prepare('SELECT id FROM proxy_routes WHERE path = ?').get(path) as { id: string } | undefined;
-
-    if (existing) {
-      // Create route as inactive - will be activated when app is started
-      db.prepare(`
-        UPDATE proxy_routes SET upstream = ?, active = FALSE, deployment_id = ?
-        WHERE id = ?
-      `).run(upstream, deploymentId, existing.id);
-    } else {
-      const id = uuidv4();
-      // Create route as inactive - will be activated when app is started
-      db.prepare(`
-        INSERT INTO proxy_routes (id, deployment_id, path, upstream, active)
-        VALUES (?, ?, ?, ?, FALSE)
-      `).run(id, deploymentId, path, upstream);
-    }
+    return registerWebUiRoute(deploymentId, manifest, serverHost);
   }
 
   async unregisterRoute(deploymentId: string): Promise<void> {
-    const db = getDb();
-    db.prepare('DELETE FROM proxy_routes WHERE deployment_id = ?').run(deploymentId);
+    return unregisterWebUiRoute(deploymentId);
   }
 
   async setRouteActive(deploymentId: string, active: boolean): Promise<void> {
-    const db = getDb();
-    db.prepare('UPDATE proxy_routes SET active = ? WHERE deployment_id = ?').run(active ? 1 : 0, deploymentId);
+    return setWebUiRouteActive(deploymentId, active);
   }
 
   async getActiveRoutes(): Promise<ProxyRoute[]> {
-    const db = getDb();
-    const rows = db.prepare(`
-      SELECT pr.*, d.app_name, s.name as server_name
-      FROM proxy_routes pr
-      JOIN deployments d ON pr.deployment_id = d.id
-      JOIN servers s ON d.server_id = s.id
-      WHERE pr.active = TRUE
-      ORDER BY pr.path
-    `).all() as (ProxyRouteRow & { app_name: string; server_name: string })[];
-
-    return rows.map(row => ({
-      id: row.id,
-      path: row.path,
-      upstream: row.upstream,
-      appName: row.app_name,
-      serverName: row.server_name,
-    }));
+    return getActiveWebUiRoutes();
   }
 
   // ==================== Service Routes ====================
@@ -161,172 +91,31 @@ export class ProxyManager {
     upstreamHost: string,
     upstreamPort: number
   ): Promise<ServiceRoute> {
-    const db = getDb();
-    const id = uuidv4();
-
-    // Determine route type based on protocol
-    const routeType = serviceDef.protocol === 'http' ? 'http' : 'tcp';
-
-    let externalPath: string | undefined;
-    let externalPort: number | undefined;
-
-    if (routeType === 'http') {
-      // HTTP services get a path like /services/myapp-api
-      externalPath = `/services/${serviceName}`;
-    } else {
-      // TCP services get an allocated port
-      externalPort = await this.allocateTcpPort(upstreamPort);
-    }
-
-    // Check for existing route for this service
-    const existing = db.prepare('SELECT id FROM service_routes WHERE service_id = ?').get(serviceId) as { id: string } | undefined;
-
-    if (existing) {
-      // Create route as inactive - will be activated when app is started
-      db.prepare(`
-        UPDATE service_routes
-        SET route_type = ?, external_path = ?, external_port = ?, upstream_host = ?, upstream_port = ?, active = FALSE
-        WHERE id = ?
-      `).run(routeType, externalPath || null, externalPort || null, upstreamHost, upstreamPort, existing.id);
-
-      return {
-        id: existing.id,
-        serviceId,
-        serviceName,
-        routeType,
-        externalPath,
-        externalPort,
-        upstreamHost,
-        upstreamPort,
-        appName: '',
-        serverName: '',
-      };
-    }
-
-    // Create route as inactive - will be activated when app is started
-    db.prepare(`
-      INSERT INTO service_routes (id, service_id, route_type, external_path, external_port, upstream_host, upstream_port, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)
-    `).run(id, serviceId, routeType, externalPath || null, externalPort || null, upstreamHost, upstreamPort);
-
-    return {
-      id,
-      serviceId,
-      serviceName,
-      routeType,
-      externalPath,
-      externalPort,
-      upstreamHost,
-      upstreamPort,
-      appName: '',
-      serverName: '',
-    };
+    return registerServiceRouteInternal(serviceId, serviceName, serviceDef, upstreamHost, upstreamPort);
   }
 
   async unregisterServiceRoutes(serviceId: string): Promise<void> {
-    const db = getDb();
-    db.prepare('DELETE FROM service_routes WHERE service_id = ?').run(serviceId);
+    return unregisterServiceRoutesInternal(serviceId);
   }
 
   async unregisterServiceRoutesByDeployment(deploymentId: string): Promise<void> {
-    const db = getDb();
-    db.prepare(`
-      DELETE FROM service_routes
-      WHERE service_id IN (SELECT id FROM services WHERE deployment_id = ?)
-    `).run(deploymentId);
+    return unregisterServiceRoutesByDeploymentInternal(deploymentId);
   }
 
   async setServiceRouteActive(serviceId: string, active: boolean): Promise<void> {
-    const db = getDb();
-    db.prepare('UPDATE service_routes SET active = ? WHERE service_id = ?').run(active ? 1 : 0, serviceId);
+    return setServiceRouteActiveInternal(serviceId, active);
   }
 
   async setServiceRoutesActiveByDeployment(deploymentId: string, active: boolean): Promise<void> {
-    const db = getDb();
-    db.prepare(`
-      UPDATE service_routes SET active = ?
-      WHERE service_id IN (SELECT id FROM services WHERE deployment_id = ?)
-    `).run(active ? 1 : 0, deploymentId);
+    return setServiceRoutesActiveByDeploymentInternal(deploymentId, active);
   }
 
   async getActiveServiceRoutes(): Promise<ServiceRoute[]> {
-    const db = getDb();
-    const rows = db.prepare(`
-      SELECT sr.*, svc.service_name, d.app_name, svr.name as server_name
-      FROM service_routes sr
-      JOIN services svc ON sr.service_id = svc.id
-      JOIN deployments d ON svc.deployment_id = d.id
-      JOIN servers svr ON d.server_id = svr.id
-      WHERE sr.active = TRUE
-      ORDER BY sr.route_type, svc.service_name
-    `).all() as ServiceRouteRow[];
-
-    return rows.map(row => ({
-      id: row.id,
-      serviceId: row.service_id,
-      serviceName: row.service_name,
-      routeType: row.route_type as 'http' | 'tcp',
-      externalPath: row.external_path || undefined,
-      externalPort: row.external_port || undefined,
-      upstreamHost: row.upstream_host,
-      upstreamPort: row.upstream_port,
-      appName: row.app_name,
-      serverName: row.server_name,
-    }));
+    return getActiveServiceRoutes();
   }
 
   async getServiceRoute(serviceId: string): Promise<ServiceRoute | null> {
-    const db = getDb();
-    const row = db.prepare(`
-      SELECT sr.*, svc.service_name, d.app_name, svr.name as server_name
-      FROM service_routes sr
-      JOIN services svc ON sr.service_id = svc.id
-      JOIN deployments d ON svc.deployment_id = d.id
-      JOIN servers svr ON d.server_id = svr.id
-      WHERE sr.service_id = ?
-    `).get(serviceId) as ServiceRouteRow | undefined;
-
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      serviceId: row.service_id,
-      serviceName: row.service_name,
-      routeType: row.route_type as 'http' | 'tcp',
-      externalPath: row.external_path || undefined,
-      externalPort: row.external_port || undefined,
-      upstreamHost: row.upstream_host,
-      upstreamPort: row.upstream_port,
-      appName: row.app_name,
-      serverName: row.server_name,
-    };
-  }
-
-  private async allocateTcpPort(preferredPort: number): Promise<number> {
-    const db = getDb();
-
-    // Try to use the same port as internal if available
-    if (preferredPort >= TCP_PORT_RANGE_START && preferredPort <= TCP_PORT_RANGE_END) {
-      const existing = db.prepare('SELECT id FROM service_routes WHERE external_port = ?').get(preferredPort);
-      if (!existing) {
-        return preferredPort;
-      }
-    }
-
-    // Find next available port in range
-    const usedPorts = db.prepare(`
-      SELECT external_port FROM service_routes WHERE external_port IS NOT NULL
-    `).all() as { external_port: number }[];
-
-    const usedSet = new Set(usedPorts.map(p => p.external_port));
-
-    for (let port = TCP_PORT_RANGE_START; port <= TCP_PORT_RANGE_END; port++) {
-      if (!usedSet.has(port)) {
-        return port;
-      }
-    }
-
-    throw new Error('No available TCP ports for service proxying');
+    return getServiceRouteInternal(serviceId);
   }
 
   // ==================== Caddy Admin API ====================
@@ -334,528 +123,30 @@ export class ProxyManager {
   async updateAndReload(): Promise<boolean> {
     const routes = await this.getActiveRoutes();
     const serviceRoutes = await this.getActiveServiceRoutes();
-    const caddyConfig = await this.generateCaddyJsonConfig(routes, serviceRoutes);
+    const caddyConfig = await generateCaddyJsonConfig(routes, serviceRoutes, this.apiPort, this.domain);
 
-    // Compute hash of the config to avoid unnecessary reloads
-    const configJson = JSON.stringify(caddyConfig);
-    const configHash = createHash('sha256').update(configJson).digest('hex');
-
-    // Skip reload if config hasn't changed
-    if (this.lastConfigHash === configHash) {
-      logger.info('Caddy config unchanged, skipping reload');
-      return true;
-    }
-
-    // Circuit breaker: if we've had too many consecutive failures, skip this update
-    if (this.consecutiveFailures >= ProxyManager.MAX_CONSECUTIVE_FAILURES) {
-      logger.warn({
-        consecutiveFailures: this.consecutiveFailures,
-      }, 'Caddy config update skipped - too many consecutive failures. Call resetCaddyState() to retry.');
-      return false;
-    }
-
-    try {
-      await withRetry(
-        async () => {
-          const response = await fetch(`${this.caddyAdminUrl}/load`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(caddyConfig),
-          });
-
-          if (!response.ok) {
-            const errorText = await response.text();
-            const error = new Error(`Caddy API error (${response.status}): ${errorText}`);
-            // Add status for retry decision
-            (error as Error & { status?: number }).status = response.status;
-            throw error;
-          }
-        },
-        {
-          maxAttempts: 3,
-          baseDelayMs: 1000,
-          maxDelayMs: 5000,
-          shouldRetry: (err) => {
-            // Retry on network errors
-            if (isNetworkError(err)) {
-              return true;
-            }
-            // Retry on retryable HTTP status codes
-            const status = (err as Error & { status?: number }).status;
-            if (status && isRetryableStatus(status)) {
-              return true;
-            }
-            // Don't retry on client errors (4xx except 429)
-            return false;
-          },
-          onRetry: (attempt, err, delayMs) => {
-            logger.warn({ attempt, error: err.message, delayMs }, 'Retrying Caddy config update');
-          },
-        }
-      );
-
-      // Success - update tracking state
-      this.lastConfigHash = configHash;
-      this.lastGoodConfig = caddyConfig;
-      this.consecutiveFailures = 0;
-      logger.info('Caddy config updated via Admin API');
-      return true;
-    } catch (err) {
-      this.consecutiveFailures++;
-      const error = err as Error & { status?: number };
-
-      // If this is a 4xx error (invalid config) and we have a last good config, try to restore it
-      if (error.status && error.status >= 400 && error.status < 500 && this.lastGoodConfig) {
-        logger.warn({ err, consecutiveFailures: this.consecutiveFailures },
-          'Caddy rejected config, attempting to restore last known good config');
-
-        const restored = await this.restoreLastGoodConfig();
-        if (restored) {
-          logger.info('Successfully restored last known good Caddy config');
-        } else {
-          logger.error('Failed to restore last known good Caddy config');
-        }
-      }
-
-      logger.error({ err, consecutiveFailures: this.consecutiveFailures },
-        'Failed to update Caddy config after retries');
-      return false;
-    }
-  }
-
-  /**
-   * Attempt to restore the last known good Caddy configuration.
-   * Returns true if successful, false otherwise.
-   */
-  private async restoreLastGoodConfig(): Promise<boolean> {
-    if (!this.lastGoodConfig) {
-      logger.warn('No last known good config to restore');
-      return false;
-    }
-
-    try {
-      const response = await fetch(`${this.caddyAdminUrl}/load`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(this.lastGoodConfig),
-      });
-
-      if (response.ok) {
-        // Restore the hash to match
-        const configJson = JSON.stringify(this.lastGoodConfig);
-        this.lastConfigHash = createHash('sha256').update(configJson).digest('hex');
-        return true;
-      }
-
-      logger.error({ status: response.status }, 'Failed to restore last good config');
-      return false;
-    } catch (err) {
-      logger.error({ err }, 'Error restoring last good config');
-      return false;
-    }
+    return pushConfigToCaddy(caddyConfig, this.caddyAdminUrl, this.caddyState);
   }
 
   /**
    * Reset the Caddy state to allow retrying after failures.
-   * Call this after fixing the underlying issue causing config failures.
    */
   resetCaddyState(): void {
-    this.consecutiveFailures = 0;
-    this.lastConfigHash = null;
-    logger.info('Caddy state reset - next updateAndReload will apply config');
+    resetCaddyStateInternal(this.caddyState);
   }
 
   /**
    * Get the current Caddy integration status.
    */
   getCaddyStatus(): { consecutiveFailures: number; hasLastGoodConfig: boolean; isCircuitOpen: boolean } {
-    return {
-      consecutiveFailures: this.consecutiveFailures,
-      hasLastGoodConfig: this.lastGoodConfig !== null,
-      isCircuitOpen: this.consecutiveFailures >= ProxyManager.MAX_CONSECUTIVE_FAILURES,
-    };
-  }
-
-  private async generateCaddyJsonConfig(routes: ProxyRoute[], serviceRoutes: ServiceRoute[]): Promise<object> {
-    const httpRoutes = serviceRoutes.filter(r => r.routeType === 'http');
-    const devUiPort = config.caddy.devUiPort;
-    const tlsConfig = await this.generateTlsConfig();
-
-    // Build subroute handlers (routes within the host matcher)
-    const subroutes: object[] = [];
-
-    // API routes
-    subroutes.push({
-      match: [{ path: ['/api/*'] }],
-      handle: [{
-        handler: 'reverse_proxy',
-        upstreams: [{ dial: `localhost:${this.apiPort}` }],
-      }],
-    });
-
-    // WebSocket routes
-    subroutes.push({
-      match: [{ path: ['/socket.io/*'] }],
-      handle: [{
-        handler: 'reverse_proxy',
-        upstreams: [{ dial: `localhost:${this.apiPort}` }],
-      }],
-    });
-
-    // Health endpoints
-    subroutes.push({
-      match: [{ path: ['/health', '/ready'] }],
-      handle: [{
-        handler: 'reverse_proxy',
-        upstreams: [{ dial: `localhost:${this.apiPort}` }],
-      }],
-    });
-
-    // App Web UI routes (with path stripping)
-    for (const route of routes) {
-      subroutes.push({
-        match: [{ path: [`${route.path}*`] }],
-        handle: [
-          {
-            handler: 'rewrite',
-            strip_path_prefix: route.path,
-          },
-          {
-            handler: 'reverse_proxy',
-            upstreams: [{ dial: route.upstream.replace('http://', '') }],
-          },
-        ],
-      });
-    }
-
-    // HTTP service routes (with path stripping)
-    for (const route of httpRoutes) {
-      subroutes.push({
-        match: [{ path: [`${route.externalPath}*`] }],
-        handle: [
-          {
-            handler: 'rewrite',
-            strip_path_prefix: route.externalPath,
-          },
-          {
-            handler: 'reverse_proxy',
-            upstreams: [{ dial: `${route.upstreamHost}:${route.upstreamPort}` }],
-          },
-        ],
-      });
-    }
-
-    // Fallback to Vite dev server (development) or static files (production)
-    if (config.isDevelopment) {
-      subroutes.push({
-        handle: [{
-          handler: 'reverse_proxy',
-          upstreams: [{ dial: `localhost:${devUiPort}` }],
-        }],
-      });
-    } else {
-      // Production: serve static UI files with SPA routing
-      const uiDistPath = config.caddy.uiDistPath || '/opt/ownprem/ui/dist';
-      subroutes.push({
-        handle: [
-          {
-            handler: 'rewrite',
-            uri: '{http.matchers.file.relative}',
-          },
-          {
-            handler: 'file_server',
-            root: uiDistPath,
-          },
-        ],
-        match: [{
-          file: {
-            root: uiDistPath,
-            try_files: ['{http.request.uri.path}', '/index.html'],
-          },
-        }],
-      });
-    }
-
-    // Wrap subroutes in a host-matched route
-    return {
-      apps: {
-        http: {
-          servers: {
-            srv0: {
-              listen: [':443'],
-              routes: [{
-                match: [{ host: [this.domain] }],
-                handle: [{
-                  handler: 'subroute',
-                  routes: subroutes,
-                }],
-                terminal: true,
-              }],
-              tls_connection_policies: [{}],
-            },
-          },
-        },
-        ...tlsConfig,
-      },
-    };
+    return getCaddyStatusInternal(this.caddyState);
   }
 
   /**
-   * Generate TLS configuration for Caddy.
-   * Uses ACME issuer pointing to step-ca when available, falls back to internal CA.
+   * Generate development Caddyfile (for debugging/reference).
    */
-  private async generateTlsConfig(): Promise<object> {
-    // Check if step-ca is available by testing the ACME endpoint
-    const stepCaAvailable = await this.isStepCaAvailable();
-
-    if (stepCaAvailable) {
-      const acmeDirectoryUrl = 'https://ca.ownprem.local:8443/acme/acme/directory';
-
-      logger.info({ acmeDirectoryUrl }, 'Using step-ca ACME issuer for TLS');
-
-      return {
-        tls: {
-          automation: {
-            policies: [{
-              subjects: [this.domain],
-              issuers: [{
-                module: 'acme',
-                ca: acmeDirectoryUrl,
-                trusted_roots_pem_files: ['/etc/step-ca/root_ca.crt'],
-              }],
-            }],
-          },
-        },
-      };
-    }
-
-    // Fallback to Caddy's internal CA
-    logger.info('step-ca not available, using Caddy internal CA for TLS');
-    return {
-      tls: {
-        automation: {
-          policies: [{
-            subjects: [this.domain],
-            issuers: [{ module: 'internal' }],
-          }],
-        },
-      },
-      pki: {
-        certificate_authorities: {
-          local: { install_trust: true },
-        },
-      },
-    };
-  }
-
-  /**
-   * Check if step-ca is running and accessible.
-   */
-  private async isStepCaAvailable(): Promise<boolean> {
-    try {
-      // Check if the root CA cert exists (indicates step-ca is installed)
-      const { access } = await import('fs/promises');
-      await access('/etc/step-ca/root_ca.crt');
-
-      // Try to reach the ACME directory endpoint using https module for self-signed cert support
-      const https = await import('https');
-      const result = await new Promise<boolean>((resolve) => {
-        const req = https.request({
-          hostname: '127.0.0.1',
-          port: 8443,
-          path: '/acme/acme/directory',
-          method: 'GET',
-          rejectUnauthorized: false,
-          timeout: 2000,
-        }, (res) => {
-          resolve(res.statusCode === 200);
-        });
-
-        req.on('error', () => resolve(false));
-        req.on('timeout', () => {
-          req.destroy();
-          resolve(false);
-        });
-
-        req.end();
-      });
-
-      if (result) {
-        logger.debug('step-ca ACME endpoint is accessible');
-        return true;
-      }
-    } catch {
-      // step-ca not available
-    }
-
-    return false;
-  }
-
-  private generateCaddyConfig(routes: ProxyRoute[], serviceRoutes: ServiceRoute[]): string {
-    // Web UI route blocks - use handle_path for automatic prefix stripping
-    const webUiBlocks = routes.map(route => `
-  # ${route.appName} Web UI on ${route.serverName}
-  handle_path ${route.path}* {
-    reverse_proxy ${route.upstream}
-  }`).join('\n');
-
-    // HTTP service route blocks - use handle_path for automatic prefix stripping
-    const httpServiceRoutes = serviceRoutes.filter(r => r.routeType === 'http');
-    const httpServiceBlocks = httpServiceRoutes.map(route => `
-  # ${route.serviceName} (${route.appName}) on ${route.serverName}
-  handle_path ${route.externalPath}* {
-    reverse_proxy http://${route.upstreamHost}:${route.upstreamPort}
-  }`).join('\n');
-
-    // TCP service routes (layer4)
-    const tcpServiceRoutes = serviceRoutes.filter(r => r.routeType === 'tcp');
-    const tcpBlocks = tcpServiceRoutes.map(route => `
-# ${route.serviceName} (${route.appName}) TCP on ${route.serverName}
-:${route.externalPort} {
-  route {
-    proxy ${route.upstreamHost}:${route.upstreamPort}
-  }
-}`).join('\n');
-
-    // Combine HTTP and TCP configs
-    const httpConfig = `# OwnPrem Caddy Configuration
-# Auto-generated - do not edit manually
-
-{
-  auto_https off
-}
-
-:443 {
-  tls internal
-
-  # OwnPrem Core UI (static files)
-  handle / {
-    root * /opt/ownprem/ui/dist
-    file_server
-    try_files {path} /index.html
-  }
-
-  # OwnPrem Core API
-  handle /api/* {
-    reverse_proxy localhost:${this.apiPort}
-  }
-
-  # WebSocket for real-time updates
-  handle /socket.io/* {
-    reverse_proxy localhost:${this.apiPort}
-  }
-
-  # HTTP Service Endpoints
-${httpServiceBlocks}
-
-  # App Web UIs
-${webUiBlocks}
-
-  # Fallback to UI for SPA routing
-  handle {
-    root * /opt/ownprem/ui/dist
-    file_server
-    try_files {path} /index.html
-  }
-}
-`;
-
-    // Layer4 config is separate (requires layer4 module)
-    const layer4Config = tcpServiceRoutes.length > 0 ? `
-# ========================================
-# TCP Service Proxying (requires layer4 module)
-# Install: xcaddy build --with github.com/mholt/caddy-l4
-# ========================================
-
-${tcpBlocks}
-` : '';
-
-    return httpConfig + layer4Config;
-  }
-
   generateDevConfig(webUiRoutes: ProxyRoute[] = [], serviceRoutes: ServiceRoute[] = []): string {
-    const httpRoutes = serviceRoutes.filter(r => r.routeType === 'http');
-    const tcpRoutes = serviceRoutes.filter(r => r.routeType === 'tcp');
-    const devUiPort = config.caddy.devUiPort;
-
-    let caddyConfig = `# OwnPrem Development Caddyfile
-# Proxies to Vite dev server and API
-
-{
-  local_certs
-}
-
-${this.domain} {
-  tls internal
-
-  # API proxy
-  handle /api/* {
-    reverse_proxy localhost:${this.apiPort}
-  }
-
-  # WebSocket proxy
-  handle /socket.io/* {
-    reverse_proxy localhost:${this.apiPort}
-  }
-
-  # Health endpoints
-  handle /health {
-    reverse_proxy localhost:${this.apiPort}
-  }
-
-  handle /ready {
-    reverse_proxy localhost:${this.apiPort}
-  }
-`;
-
-    // Add app Web UI routes - use handle_path for automatic prefix stripping
-    for (const route of webUiRoutes) {
-      caddyConfig += `
-  # ${route.appName} Web UI on ${route.serverName}
-  handle_path ${route.path}* {
-    reverse_proxy ${route.upstream}
-  }
-`;
-    }
-
-    // Add HTTP service routes - use handle_path for automatic prefix stripping
-    for (const route of httpRoutes) {
-      caddyConfig += `
-  # ${route.serviceName} (${route.appName})
-  handle_path ${route.externalPath}* {
-    reverse_proxy http://${route.upstreamHost}:${route.upstreamPort}
-  }
-`;
-    }
-
-    caddyConfig += `
-  # Everything else to Vite dev server
-  handle {
-    reverse_proxy localhost:${devUiPort}
-  }
-}
-`;
-
-    // Add TCP service routes (layer4)
-    if (tcpRoutes.length > 0) {
-      caddyConfig += `
-# ========================================
-# TCP Service Proxying (requires layer4 module)
-# ========================================
-
-`;
-      for (const route of tcpRoutes) {
-        caddyConfig += `# ${route.serviceName} (${route.appName})
-:${route.externalPort} {
-  route {
-    proxy ${route.upstreamHost}:${route.upstreamPort}
-  }
-}
-`;
-      }
-    }
-
-    return caddyConfig;
+    return generateDevCaddyfile(webUiRoutes, serviceRoutes, this.apiPort, this.domain);
   }
 
   // ==================== Connection Info Helpers ====================

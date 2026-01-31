@@ -5,6 +5,7 @@ import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import { getDb } from '../db/index.js';
 import { config } from '../config.js';
+import { authLogger } from '../lib/logger.js';
 
 interface UserRow {
   id: string;
@@ -770,8 +771,8 @@ class AuthService {
       if (config.isDevelopment) {
         const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD;
         if (!defaultPassword) {
-          console.warn(
-            'WARNING: DEFAULT_ADMIN_PASSWORD not set. ' +
+          authLogger.warn(
+            'DEFAULT_ADMIN_PASSWORD not set. ' +
             'Set this environment variable to create a dev admin user automatically. ' +
             'Example: DEFAULT_ADMIN_PASSWORD=$(openssl rand -base64 24)'
           );
@@ -779,9 +780,9 @@ class AuthService {
         }
         await this.createUser('admin', defaultPassword, true); // isSystemAdmin = true
         // System admins don't need group membership - they have full access
-        console.log('Created default admin user (username: admin)');
+        authLogger.info('Created default admin user (username: admin)');
       } else {
-        console.warn('No users exist. Create an admin user with: POST /api/auth/setup');
+        authLogger.warn('No users exist. Create an admin user with: POST /api/auth/setup');
       }
     }
   }

@@ -25,6 +25,11 @@ const logger = pino({
     service: 'agent',
     serverId: process.env.SERVER_ID || 'unknown',
   },
+  // Redact sensitive fields (matches orchestrator configuration)
+  redact: {
+    paths: ['password', 'token', 'accessToken', 'refreshToken', 'authToken', 'secret', 'secretsKey', 'credentials', 'credentials.username', 'credentials.password'],
+    remove: true,
+  },
 });
 
 export default logger;
