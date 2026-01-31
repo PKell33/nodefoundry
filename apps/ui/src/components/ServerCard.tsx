@@ -1,6 +1,6 @@
 import { Server, Cpu, HardDrive, MemoryStick, Trash2, MoreVertical, FileText, KeyRound, Play, Square, ExternalLink, Link, Settings, FileText as LogsIcon, RotateCw, Plus, Network } from 'lucide-react';
 import { Sparkline } from './MetricsChart';
-import { useState } from 'react';
+import { useState, useCallback, useMemo, memo } from 'react';
 import type { Server as ServerType, Deployment, AppManifest } from '../api/client';
 import StatusBadge from './StatusBadge';
 import AppIcon from './AppIcon';
@@ -33,7 +33,12 @@ type ConfirmAction = {
   appName: string;
 };
 
-export default function ServerCard({
+/**
+ * ServerCard - Displays server info, metrics, and deployed apps.
+ * Wrapped in React.memo to prevent re-renders when parent state changes
+ * but this server's data hasn't changed.
+ */
+const ServerCard = memo(function ServerCard({
   server,
   deployments = [],
   apps = [],
@@ -60,29 +65,51 @@ export default function ServerCard({
   const [installAppName, setInstallAppName] = useState<string | null>(null);
   const metrics = server.metrics;
 
-  // Get apps that are not already installed on this server
-  // Exclude mandatory system apps (they're auto-installed)
-  const installedAppNames = deployments.map(d => d.appName);
-  const availableApps = apps.filter(app =>
-    !installedAppNames.includes(app.name) && !app.mandatory
+  // Memoize expensive computations
+  const installedAppNames = useMemo(() => deployments.map(d => d.appName), [deployments]);
+
+  // Available apps = not installed and not mandatory
+  const availableApps = useMemo(() =>
+    apps.filter(app => !installedAppNames.includes(app.name) && !app.mandatory),
+    [apps, installedAppNames]
   );
 
-  // Group available apps by category, with system apps in their own category
-  const appsByCategory = availableApps.reduce((acc, app) => {
-    const category = app.category || 'other';
-    if (!acc[category]) acc[category] = [];
-    acc[category].push(app);
-    return acc;
-  }, {} as Record<string, AppManifest[]>);
+  // Group available apps by category
+  const appsByCategory = useMemo(() =>
+    availableApps.reduce((acc, app) => {
+      const category = app.category || 'other';
+      if (!acc[category]) acc[category] = [];
+      acc[category].push(app);
+      return acc;
+    }, {} as Record<string, AppManifest[]>),
+    [availableApps]
+  );
 
   // Define category order (system first, then others)
-  const categoryOrder = ['system', 'database', 'web', 'networking', 'monitoring', 'utility', 'other'];
+  const categoryOrder = useMemo(() =>
+    ['system', 'database', 'web', 'networking', 'monitoring', 'utility', 'other'],
+    []
+  );
 
-  const getAppForDeployment = (appName: string): AppManifest | undefined => {
+  // Sort deployments: system apps first
+  const sortedDeployments = useMemo(() => {
+    const getApp = (appName: string) => apps.find(a => a.name === appName);
+    return [...deployments].sort((a, b) => {
+      const appA = getApp(a.appName);
+      const appB = getApp(b.appName);
+      if (appA?.system && !appB?.system) return -1;
+      if (!appA?.system && appB?.system) return 1;
+      return 0;
+    });
+  }, [deployments, apps]);
+
+  // Memoize callback for looking up apps
+  const getAppForDeployment = useCallback((appName: string): AppManifest | undefined => {
     return apps.find(a => a.name === appName);
-  };
+  }, [apps]);
 
-  const handleDelete = (e: React.MouseEvent) => {
+  // Memoize event handlers to prevent child re-renders
+  const handleDelete = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (confirmDelete) {
       onDelete?.();
@@ -92,15 +119,15 @@ export default function ServerCard({
       setConfirmDelete(true);
       setConfirmRegenerate(false);
     }
-  };
+  }, [confirmDelete, onDelete]);
 
-  const handleViewGuide = (e: React.MouseEvent) => {
+  const handleViewGuide = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     onViewGuide?.();
     setShowMenu(false);
-  };
+  }, [onViewGuide]);
 
-  const handleRegenerate = (e: React.MouseEvent) => {
+  const handleRegenerate = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (!confirmRegenerate) {
       setConfirmRegenerate(true);
@@ -110,17 +137,17 @@ export default function ServerCard({
     onRegenerate?.();
     setConfirmRegenerate(false);
     setShowMenu(false);
-  };
+  }, [confirmRegenerate, onRegenerate]);
 
-  const handleAppClick = (deployment: Deployment, e: React.MouseEvent) => {
+  const handleAppClick = useCallback((deployment: Deployment, e: React.MouseEvent) => {
     e.stopPropagation();
     const app = getAppForDeployment(deployment.appName);
     if (app) {
       setSelectedApp({ app, deployment });
     }
-  };
+  }, [getAppForDeployment]);
 
-  const handleConfirmAction = () => {
+  const handleConfirmAction = useCallback(() => {
     if (!confirmAction) return;
 
     switch (confirmAction.type) {
@@ -135,9 +162,28 @@ export default function ServerCard({
         break;
     }
     setConfirmAction(null);
-  };
+  }, [confirmAction, onStopApp, onRestartApp, onUninstallApp]);
 
-  const getConfirmModalContent = () => {
+  const handleMenuToggle = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(prev => !prev);
+    setConfirmDelete(false);
+    setConfirmRegenerate(false);
+  }, []);
+
+  const handleMenuClose = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+    setConfirmDelete(false);
+    setConfirmRegenerate(false);
+  }, []);
+
+  const handleAddAppClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowAddAppModal(true);
+  }, []);
+
+  const getConfirmModalContent = useCallback(() => {
     if (!confirmAction) return { title: '', message: '', buttonText: '', buttonClass: '' };
 
     switch (confirmAction.type) {
@@ -163,7 +209,7 @@ export default function ServerCard({
           buttonClass: 'bg-red-600 hover:bg-red-700',
         };
     }
-  };
+  }, [confirmAction]);
 
   return (
     <div
@@ -198,12 +244,7 @@ export default function ServerCard({
           {canManage && !server.isCore && (
             <div className="relative">
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowMenu(!showMenu);
-                  setConfirmDelete(false);
-                  setConfirmRegenerate(false);
-                }}
+                onClick={handleMenuToggle}
                 className="p-1 rounded hover:bg-[var(--bg-tertiary)] transition-colors"
                 aria-label="Server options menu"
                 aria-expanded={showMenu}
@@ -215,12 +256,7 @@ export default function ServerCard({
                 <>
                   <div
                     className="fixed inset-0 z-10"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowMenu(false);
-                      setConfirmDelete(false);
-                      setConfirmRegenerate(false);
-                    }}
+                    onClick={handleMenuClose}
                   />
                   <div className="absolute right-0 top-full mt-1 z-20 py-1 rounded-lg shadow-lg min-w-[180px]
                     bg-[var(--bg-secondary)] border border-[var(--border-color)]">
@@ -284,164 +320,23 @@ export default function ServerCard({
       )}
 
       <div className="mt-2 md:mt-3 pt-2 md:pt-3 border-t border-[var(--border-color)]">
-        {deployments.length > 0 ? (
+        {sortedDeployments.length > 0 ? (
           <div className="space-y-2">
-            {/* System apps first, then regular apps */}
-            {[...deployments]
-              .sort((a, b) => {
-                const appA = getAppForDeployment(a.appName);
-                const appB = getAppForDeployment(b.appName);
-                // System apps first
-                if (appA?.system && !appB?.system) return -1;
-                if (!appA?.system && appB?.system) return 1;
-                return 0;
-              })
-              .map((deployment) => {
-              const app = getAppForDeployment(deployment.appName);
-              const appDisplayName = app?.displayName || formatAppName(deployment.appName);
-              const isRunning = deployment.status === 'running';
-              const canControl = !['installing', 'configuring', 'uninstalling'].includes(deployment.status);
-              const hasServices = app?.provides && app.provides.length > 0;
-              const hasEditableConfig = app?.configSchema?.some(f => !f.generated && !f.inheritFrom) ?? false;
-              const isSystemApp = app?.system ?? false;
-
-              return (
-                <div
-                  key={deployment.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg ${
-                    isSystemApp
-                      ? 'bg-purple-500/10 border border-purple-500/20'
-                      : 'bg-[var(--bg-secondary)]'
-                  }`}
-                >
-                  {/* App icon - clickable */}
-                  <button
-                    onClick={(e) => handleAppClick(deployment, e)}
-                    className="flex items-center gap-2 flex-shrink-0 hover:opacity-80 transition-opacity"
-                    title={`View ${appDisplayName} details`}
-                  >
-                    <AppIcon appName={deployment.appName} size={20} />
-                    <span className="text-sm">{appDisplayName}</span>
-                    <StatusBadge status={deployment.status} size="sm" />
-                  </button>
-
-                  {/* Action buttons */}
-                  <div className="flex items-center gap-1">
-                    {/* Start button */}
-                    {canControl && canOperate && !isRunning && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onStartApp?.(deployment.id);
-                        }}
-                        title="Start"
-                        className="p-1.5 rounded hover:bg-green-600/20 text-green-500 transition-colors"
-                      >
-                        <Play size={14} />
-                      </button>
-                    )}
-
-                    {/* Stop button */}
-                    {canControl && canOperate && isRunning && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmAction({ type: 'stop', deploymentId: deployment.id, appName: appDisplayName });
-                        }}
-                        title="Stop"
-                        className="p-1.5 rounded hover:bg-yellow-600/20 text-yellow-500 transition-colors"
-                      >
-                        <Square size={14} />
-                      </button>
-                    )}
-
-                    {/* Restart button */}
-                    {canControl && canOperate && isRunning && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmAction({ type: 'restart', deploymentId: deployment.id, appName: appDisplayName });
-                        }}
-                        title="Restart"
-                        className="p-1.5 rounded hover:bg-blue-600/20 text-blue-500 transition-colors"
-                      >
-                        <RotateCw size={14} />
-                      </button>
-                    )}
-
-                    {/* Open Web UI */}
-                    {app?.webui?.enabled && isRunning && (
-                      <a
-                        href={app.webui.basePath}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        title="Open Web UI"
-                        className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
-                      >
-                        <ExternalLink size={14} />
-                      </a>
-                    )}
-
-                    {/* Connection Info */}
-                    {hasServices && canManage && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConnectionInfoDeployment(deployment);
-                        }}
-                        title="Connection Info"
-                        className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
-                      >
-                        <Link size={14} />
-                      </button>
-                    )}
-
-                    {/* Settings */}
-                    {hasEditableConfig && canManage && app && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditConfigData({ deployment, app });
-                        }}
-                        title="Settings"
-                        className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
-                      >
-                        <Settings size={14} />
-                      </button>
-                    )}
-
-                    {/* View Logs */}
-                    {canOperate && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setLogsDeployment({ deployment, appName: appDisplayName });
-                        }}
-                        title="View Logs"
-                        className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
-                      >
-                        <LogsIcon size={14} />
-                      </button>
-                    )}
-
-                    {/* Uninstall button - hidden for mandatory system apps */}
-                    {canControl && canManage && !app?.mandatory && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmAction({ type: 'uninstall', deploymentId: deployment.id, appName: appDisplayName });
-                        }}
-                        title="Uninstall"
-                        className="p-1.5 rounded hover:bg-red-600/20 text-red-500 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+            {sortedDeployments.map((deployment) => (
+              <DeploymentItem
+                key={deployment.id}
+                deployment={deployment}
+                app={getAppForDeployment(deployment.appName)}
+                canManage={canManage}
+                canOperate={canOperate}
+                onAppClick={handleAppClick}
+                onStartApp={onStartApp}
+                onSetConfirmAction={setConfirmAction}
+                onSetConnectionInfo={setConnectionInfoDeployment}
+                onSetLogsDeployment={setLogsDeployment}
+                onSetEditConfigData={setEditConfigData}
+              />
+            ))}
           </div>
         ) : (
           <span className="text-xs md:text-sm text-muted">No apps deployed</span>
@@ -450,10 +345,7 @@ export default function ServerCard({
         {/* Add App Button - at the bottom */}
         {canManage && server.agentStatus === 'online' && availableApps.length > 0 && (
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowAddAppModal(true);
-            }}
+            onClick={handleAddAppClick}
             className="w-full mt-2 px-3 py-2 flex items-center justify-center gap-2 text-sm rounded-lg border border-dashed border-[var(--border-color)] hover:border-accent hover:text-accent transition-colors text-muted"
           >
             <Plus size={16} />
@@ -582,29 +474,14 @@ export default function ServerCard({
                     <h3 className="text-sm font-medium text-muted mb-2 capitalize">{category}</h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {appsByCategory[category].map((app) => (
-                        <button
+                        <AppSelectButton
                           key={app.name}
-                          onClick={() => {
+                          app={app}
+                          onSelect={() => {
                             setShowAddAppModal(false);
                             setInstallAppName(app.name);
                           }}
-                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
-                            app.system
-                              ? 'border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10'
-                              : 'border-[var(--border-color)] hover:border-accent hover:bg-accent/5'
-                          }`}
-                        >
-                          <AppIcon appName={app.name} size={32} />
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium text-sm truncate flex items-center gap-2">
-                              {app.displayName}
-                              {app.system && (
-                                <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">System</span>
-                              )}
-                            </div>
-                            <div className="text-xs text-muted truncate">{app.description}</div>
-                          </div>
-                        </button>
+                        />
                       ))}
                     </div>
                   </div>
@@ -634,9 +511,239 @@ export default function ServerCard({
       )}
     </div>
   );
+});
+
+export default ServerCard;
+
+// Memoized sub-component for app selection in modal
+const AppSelectButton = memo(function AppSelectButton({
+  app,
+  onSelect,
+}: {
+  app: AppManifest;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      className={`flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
+        app.system
+          ? 'border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10'
+          : 'border-[var(--border-color)] hover:border-accent hover:bg-accent/5'
+      }`}
+    >
+      <AppIcon appName={app.name} size={32} />
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-sm truncate flex items-center gap-2">
+          {app.displayName}
+          {app.system && (
+            <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">System</span>
+          )}
+        </div>
+        <div className="text-xs text-muted truncate">{app.description}</div>
+      </div>
+    </button>
+  );
+});
+
+// Memoized deployment item - prevents re-render when other deployments change
+interface DeploymentItemProps {
+  deployment: Deployment;
+  app: AppManifest | undefined;
+  canManage: boolean;
+  canOperate: boolean;
+  onAppClick: (deployment: Deployment, e: React.MouseEvent) => void;
+  onStartApp?: (deploymentId: string) => void;
+  onSetConfirmAction: (action: ConfirmAction) => void;
+  onSetConnectionInfo: (deployment: Deployment) => void;
+  onSetLogsDeployment: (data: { deployment: Deployment; appName: string }) => void;
+  onSetEditConfigData: (data: { deployment: Deployment; app: AppManifest }) => void;
 }
 
-function MetricItem({ icon, label, value, sparkline }: { icon: React.ReactNode; label: string; value: string; sparkline?: React.ReactNode }) {
+const DeploymentItem = memo(function DeploymentItem({
+  deployment,
+  app,
+  canManage,
+  canOperate,
+  onAppClick,
+  onStartApp,
+  onSetConfirmAction,
+  onSetConnectionInfo,
+  onSetLogsDeployment,
+  onSetEditConfigData,
+}: DeploymentItemProps) {
+  const appDisplayName = app?.displayName || formatAppName(deployment.appName);
+  const isRunning = deployment.status === 'running';
+  const canControl = !['installing', 'configuring', 'uninstalling'].includes(deployment.status);
+  const hasServices = app?.provides && app.provides.length > 0;
+  const hasEditableConfig = app?.configSchema?.some(f => !f.generated && !f.inheritFrom) ?? false;
+  const isSystemApp = app?.system ?? false;
+
+  const handleStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onStartApp?.(deployment.id);
+  }, [onStartApp, deployment.id]);
+
+  const handleStop = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetConfirmAction({ type: 'stop', deploymentId: deployment.id, appName: appDisplayName });
+  }, [onSetConfirmAction, deployment.id, appDisplayName]);
+
+  const handleRestart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetConfirmAction({ type: 'restart', deploymentId: deployment.id, appName: appDisplayName });
+  }, [onSetConfirmAction, deployment.id, appDisplayName]);
+
+  const handleUninstall = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetConfirmAction({ type: 'uninstall', deploymentId: deployment.id, appName: appDisplayName });
+  }, [onSetConfirmAction, deployment.id, appDisplayName]);
+
+  const handleConnectionInfo = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetConnectionInfo(deployment);
+  }, [onSetConnectionInfo, deployment]);
+
+  const handleLogs = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    onSetLogsDeployment({ deployment, appName: appDisplayName });
+  }, [onSetLogsDeployment, deployment, appDisplayName]);
+
+  const handleSettings = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (app) {
+      onSetEditConfigData({ deployment, app });
+    }
+  }, [onSetEditConfigData, deployment, app]);
+
+  return (
+    <div
+      className={`flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg ${
+        isSystemApp
+          ? 'bg-purple-500/10 border border-purple-500/20'
+          : 'bg-[var(--bg-secondary)]'
+      }`}
+    >
+      {/* App icon - clickable */}
+      <button
+        onClick={(e) => onAppClick(deployment, e)}
+        className="flex items-center gap-2 flex-shrink-0 hover:opacity-80 transition-opacity"
+        title={`View ${appDisplayName} details`}
+      >
+        <AppIcon appName={deployment.appName} size={20} />
+        <span className="text-sm">{appDisplayName}</span>
+        <StatusBadge status={deployment.status} size="sm" />
+      </button>
+
+      {/* Action buttons */}
+      <div className="flex items-center gap-1">
+        {/* Start button */}
+        {canControl && canOperate && !isRunning && (
+          <button
+            onClick={handleStart}
+            title="Start"
+            className="p-1.5 rounded hover:bg-green-600/20 text-green-500 transition-colors"
+          >
+            <Play size={14} />
+          </button>
+        )}
+
+        {/* Stop button */}
+        {canControl && canOperate && isRunning && (
+          <button
+            onClick={handleStop}
+            title="Stop"
+            className="p-1.5 rounded hover:bg-yellow-600/20 text-yellow-500 transition-colors"
+          >
+            <Square size={14} />
+          </button>
+        )}
+
+        {/* Restart button */}
+        {canControl && canOperate && isRunning && (
+          <button
+            onClick={handleRestart}
+            title="Restart"
+            className="p-1.5 rounded hover:bg-blue-600/20 text-blue-500 transition-colors"
+          >
+            <RotateCw size={14} />
+          </button>
+        )}
+
+        {/* Open Web UI */}
+        {app?.webui?.enabled && isRunning && (
+          <a
+            href={app.webui.basePath}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            title="Open Web UI"
+            className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+          >
+            <ExternalLink size={14} />
+          </a>
+        )}
+
+        {/* Connection Info */}
+        {hasServices && canManage && (
+          <button
+            onClick={handleConnectionInfo}
+            title="Connection Info"
+            className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+          >
+            <Link size={14} />
+          </button>
+        )}
+
+        {/* Settings */}
+        {hasEditableConfig && canManage && app && (
+          <button
+            onClick={handleSettings}
+            title="Settings"
+            className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+          >
+            <Settings size={14} />
+          </button>
+        )}
+
+        {/* View Logs */}
+        {canOperate && (
+          <button
+            onClick={handleLogs}
+            title="View Logs"
+            className="p-1.5 rounded hover:bg-[var(--bg-tertiary)] text-[var(--text-secondary)] transition-colors"
+          >
+            <LogsIcon size={14} />
+          </button>
+        )}
+
+        {/* Uninstall button - hidden for mandatory system apps */}
+        {canControl && canManage && !app?.mandatory && (
+          <button
+            onClick={handleUninstall}
+            title="Uninstall"
+            className="p-1.5 rounded hover:bg-red-600/20 text-red-500 transition-colors"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+// Memoized metric item component
+const MetricItem = memo(function MetricItem({
+  icon,
+  label,
+  value,
+  sparkline
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  sparkline?: React.ReactNode;
+}) {
   return (
     <div className="text-center">
       <div className="flex items-center justify-center gap-1 text-muted mb-0.5 md:mb-1">
@@ -647,7 +754,7 @@ function MetricItem({ icon, label, value, sparkline }: { icon: React.ReactNode; 
       {sparkline && <div className="flex justify-center mt-1">{sparkline}</div>}
     </div>
   );
-}
+});
 
 function formatBytes(bytes: number): string {
   if (bytes === 0) return '0 B';

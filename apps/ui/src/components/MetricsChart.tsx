@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { memo, useMemo, useState, useCallback } from 'react';
 import {
   LineChart,
   Line,
@@ -18,7 +18,7 @@ interface MetricsChartProps {
   showLegend?: boolean;
 }
 
-export default function MetricsChart({ serverId, height = 200, showLegend = true }: MetricsChartProps) {
+const MetricsChart = memo(function MetricsChart({ serverId, height = 200, showLegend = true }: MetricsChartProps) {
   const history = useMetricsStore((state) => state.history[serverId] || []);
   const { theme } = useThemeStore();
 
@@ -114,7 +114,9 @@ export default function MetricsChart({ serverId, height = 200, showLegend = true
       </LineChart>
     </ResponsiveContainer>
   );
-}
+});
+
+export default MetricsChart;
 
 // Single metric chart (CPU, Memory, or Disk only)
 interface SingleMetricChartProps {
@@ -124,7 +126,7 @@ interface SingleMetricChartProps {
   height?: number;
 }
 
-export function SingleMetricChart({
+export const SingleMetricChart = memo(function SingleMetricChart({
   serverId,
   metric,
   color,
@@ -194,7 +196,7 @@ export function SingleMetricChart({
       </LineChart>
     </ResponsiveContainer>
   );
-}
+});
 
 // Compact sparkline for ServerCard
 interface SparklineProps {
@@ -206,7 +208,7 @@ interface SparklineProps {
   total?: number; // Total bytes for memory/disk to show GB scale
 }
 
-export function Sparkline({
+export const Sparkline = memo(function Sparkline({
   serverId,
   metric,
   color,
@@ -294,7 +296,7 @@ export function Sparkline({
 
   const pathD = `M ${points.map(p => `${p.x},${p.y}`).join(' L ')}`;
 
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
     const svg = e.currentTarget;
     const rect = svg.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -307,12 +309,12 @@ export function Sparkline({
       setHoveredIndex(clampedIndex);
       setMousePos({ x: e.clientX, y: e.clientY });
     }
-  };
+  }, [leftPadding, chartWidth, data.length]);
 
-  const handleMouseLeave = () => {
+  const handleMouseLeave = useCallback(() => {
     setHoveredIndex(null);
     setMousePos(null);
-  };
+  }, []);
 
   return (
     <div className="relative">
@@ -370,7 +372,7 @@ export function Sparkline({
       )}
     </div>
   );
-}
+});
 
 // Aggregated chart showing all servers
 interface AggregatedMetricsChartProps {
@@ -379,7 +381,7 @@ interface AggregatedMetricsChartProps {
   height?: number;
 }
 
-export function AggregatedMetricsChart({
+export const AggregatedMetricsChart = memo(function AggregatedMetricsChart({
   serverIds,
   metric,
   height = 150,
@@ -480,4 +482,4 @@ export function AggregatedMetricsChart({
       </LineChart>
     </ResponsiveContainer>
   );
-}
+});

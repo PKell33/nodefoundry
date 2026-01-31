@@ -7,6 +7,8 @@ export function useServers() {
     queryKey: ['servers'],
     queryFn: api.getServers,
     refetchInterval: 30000,
+    refetchIntervalInBackground: false, // Don't poll when tab is hidden
+    staleTime: 30000, // Server list changes rarely
   });
 }
 
@@ -23,6 +25,7 @@ export function useApps(includeSystem = true) {
   return useQuery({
     queryKey: ['apps', includeSystem],
     queryFn: () => api.getApps(includeSystem),
+    staleTime: 5 * 60 * 1000, // 5 minutes - app manifests are static
   });
 }
 
@@ -31,6 +34,7 @@ export function useApp(name: string) {
     queryKey: ['apps', name],
     queryFn: () => api.getApp(name),
     enabled: !!name,
+    staleTime: 5 * 60 * 1000, // 5 minutes - app manifest is static
   });
 }
 
@@ -40,6 +44,8 @@ export function useDeployments(serverId?: string) {
     queryKey: ['deployments', serverId],
     queryFn: () => api.getDeployments(serverId),
     refetchInterval: 10000,
+    refetchIntervalInBackground: false, // Don't poll when tab is hidden
+    staleTime: 5000, // Status can change during operations
   });
 }
 
@@ -57,6 +63,8 @@ export function useSystemStatus() {
     queryKey: ['system', 'status'],
     queryFn: api.getSystemStatus,
     refetchInterval: 10000,
+    refetchIntervalInBackground: false, // Don't poll when tab is hidden
+    staleTime: 10000, // System status relatively stable
   });
 }
 
@@ -132,6 +140,7 @@ export function useMounts() {
   return useQuery({
     queryKey: ['mounts'],
     queryFn: api.getMounts,
+    staleTime: 60000, // 1 minute - mount definitions change rarely
   });
 }
 
@@ -140,6 +149,8 @@ export function useServerMounts() {
     queryKey: ['serverMounts'],
     queryFn: api.getServerMounts,
     refetchInterval: 30000,
+    refetchIntervalInBackground: false, // Don't poll when tab is hidden
+    staleTime: 30000, // Mount status changes rarely
   });
 }
 

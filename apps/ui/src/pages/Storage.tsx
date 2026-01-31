@@ -15,11 +15,14 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { showError } from '../lib/toast';
 import MountCard from '../components/MountCard';
 import Modal from '../components/Modal';
+import { ComponentErrorBoundary } from '../components/ComponentErrorBoundary';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { QueryError } from '../components/QueryError';
 import type { MountType } from '../api/client';
 
 export default function Storage() {
-  const { data: mounts, isLoading: mountsLoading } = useMounts();
-  const { data: serverMounts, isLoading: serverMountsLoading } = useServerMounts();
+  const { data: mounts, isLoading: mountsLoading, error: mountsError, refetch: refetchMounts } = useMounts();
+  const { data: serverMounts, isLoading: serverMountsLoading, error: serverMountsError, refetch: refetchServerMounts } = useServerMounts();
   const { data: servers } = useServers();
   const { user } = useAuthStore();
 
@@ -34,6 +37,8 @@ export default function Storage() {
 
   const canManage = user?.isSystemAdmin ?? false;
   const isLoading = mountsLoading || serverMountsLoading;
+  const error = mountsError || serverMountsError;
+  const refetch = () => { refetchMounts(); refetchServerMounts(); };
   const isMutating = createMountMutation.isPending ||
     deleteMountMutation.isPending ||
     assignMountMutation.isPending ||
@@ -148,25 +153,28 @@ export default function Storage() {
       </div>
 
       {isLoading ? (
-        <div className="text-muted">Loading...</div>
+        <LoadingSpinner message="Loading storage mounts..." />
+      ) : error ? (
+        <QueryError error={error} refetch={refetch} message="Failed to load storage mounts" />
       ) : mounts && mounts.length > 0 ? (
         <div className="grid grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-4">
           {mounts.map((mount) => (
-            <MountCard
-              key={mount.id}
-              mount={mount}
-              serverMounts={serverMountsByMount[mount.id] || []}
-              servers={servers || []}
-              canManage={canManage}
-              onDelete={() => handleDeleteMount(mount.id)}
-              onAssign={(serverId, mountPoint, options, purpose) =>
-                handleAssignMount(mount.id, serverId, mountPoint, options, purpose)
-              }
-              onMount={handleMountStorage}
-              onUnmount={handleUnmountStorage}
-              onDeleteServerMount={handleDeleteServerMount}
-              isLoading={isMutating}
-            />
+            <ComponentErrorBoundary key={mount.id} componentName={`Mount: ${mount.name}`}>
+              <MountCard
+                mount={mount}
+                serverMounts={serverMountsByMount[mount.id] || []}
+                servers={servers || []}
+                canManage={canManage}
+                onDelete={() => handleDeleteMount(mount.id)}
+                onAssign={(serverId, mountPoint, options, purpose) =>
+                  handleAssignMount(mount.id, serverId, mountPoint, options, purpose)
+                }
+                onMount={handleMountStorage}
+                onUnmount={handleUnmountStorage}
+                onDeleteServerMount={handleDeleteServerMount}
+                isLoading={isMutating}
+              />
+            </ComponentErrorBoundary>
           ))}
         </div>
       ) : (

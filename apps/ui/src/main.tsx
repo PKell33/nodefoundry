@@ -9,7 +9,8 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 5000,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true, // Refetch when user returns to tab
+      refetchIntervalInBackground: false, // Stop polling when tab is hidden
     },
   },
 });

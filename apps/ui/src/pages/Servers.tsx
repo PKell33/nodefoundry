@@ -6,9 +6,12 @@ import { api } from '../api/client';
 import { showError } from '../lib/toast';
 import ServerCard from '../components/ServerCard';
 import Modal from '../components/Modal';
+import { ComponentErrorBoundary } from '../components/ComponentErrorBoundary';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { QueryError } from '../components/QueryError';
 
 export default function Servers() {
-  const { data: servers, isLoading, refetch } = useServers();
+  const { data: servers, isLoading, error, refetch } = useServers();
   const { data: deployments } = useDeployments();
   const { data: apps } = useApps();
   const { user } = useAuthStore();
@@ -91,27 +94,30 @@ export default function Servers() {
       </div>
 
       {isLoading ? (
-        <div className="text-muted">Loading...</div>
+        <LoadingSpinner message="Loading servers..." />
+      ) : error ? (
+        <QueryError error={error} refetch={refetch} message="Failed to load servers" />
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-4">
           {servers?.map((server) => {
             const serverDeployments = deployments?.filter((d) => d.serverId === server.id) || [];
             return (
-              <ServerCard
-                key={server.id}
-                server={server}
-                deployments={serverDeployments}
-                apps={apps}
-                canManage={canManage}
-                canOperate={canOperate}
-                onDelete={() => handleDeleteServer(server.id)}
-                onViewGuide={() => handleViewGuide(server.name)}
-                onRegenerate={() => handleRegenerateToken(server.id, server.name)}
-                onStartApp={(id) => startMutation.mutate(id)}
-                onStopApp={(id) => stopMutation.mutate(id)}
-                onRestartApp={(id) => restartMutation.mutate(id)}
-                onUninstallApp={(id) => uninstallMutation.mutate(id)}
-              />
+              <ComponentErrorBoundary key={server.id} componentName={`Server: ${server.name}`}>
+                <ServerCard
+                  server={server}
+                  deployments={serverDeployments}
+                  apps={apps}
+                  canManage={canManage}
+                  canOperate={canOperate}
+                  onDelete={() => handleDeleteServer(server.id)}
+                  onViewGuide={() => handleViewGuide(server.name)}
+                  onRegenerate={() => handleRegenerateToken(server.id, server.name)}
+                  onStartApp={(id) => startMutation.mutate(id)}
+                  onStopApp={(id) => stopMutation.mutate(id)}
+                  onRestartApp={(id) => restartMutation.mutate(id)}
+                  onUninstallApp={(id) => uninstallMutation.mutate(id)}
+                />
+              </ComponentErrorBoundary>
             );
           })}
         </div>

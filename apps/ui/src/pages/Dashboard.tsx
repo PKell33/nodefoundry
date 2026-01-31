@@ -6,10 +6,13 @@ import { useAuthStore } from '../stores/useAuthStore';
 import ServerCard from '../components/ServerCard';
 import StatusBadge from '../components/StatusBadge';
 import { useMetricsStore } from '../stores/useMetricsStore';
+import { ComponentErrorBoundary } from '../components/ComponentErrorBoundary';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { QueryError } from '../components/QueryError';
 
 export default function Dashboard() {
-  const { data: servers, isLoading: serversLoading } = useServers();
-  const { data: deployments, isLoading: deploymentsLoading } = useDeployments();
+  const { data: servers, isLoading: serversLoading, error: serversError, refetch: refetchServers } = useServers();
+  const { data: deployments, isLoading: deploymentsLoading, error: deploymentsError, refetch: refetchDeployments } = useDeployments();
   const { data: apps } = useApps();
   const { data: status } = useSystemStatus();
   const { user } = useAuthStore();
@@ -95,24 +98,27 @@ export default function Dashboard() {
         </div>
 
         {serversLoading ? (
-          <div className="text-muted">Loading...</div>
+          <LoadingSpinner message="Loading servers..." />
+        ) : serversError ? (
+          <QueryError error={serversError} refetch={refetchServers} message="Failed to load servers" />
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-4">
             {servers?.slice(0, 3).map((server) => {
               const serverDeployments = deployments?.filter((d) => d.serverId === server.id) || [];
               return (
-                <ServerCard
-                  key={server.id}
-                  server={server}
-                  deployments={serverDeployments}
-                  apps={apps}
-                  canManage={canManage}
-                  canOperate={canOperate}
-                  onStartApp={(id) => startMutation.mutate(id)}
-                  onStopApp={(id) => stopMutation.mutate(id)}
-                  onRestartApp={(id) => restartMutation.mutate(id)}
-                  onUninstallApp={(id) => uninstallMutation.mutate(id)}
-                />
+                <ComponentErrorBoundary key={server.id} componentName={`Server: ${server.name}`}>
+                  <ServerCard
+                    server={server}
+                    deployments={serverDeployments}
+                    apps={apps}
+                    canManage={canManage}
+                    canOperate={canOperate}
+                    onStartApp={(id) => startMutation.mutate(id)}
+                    onStopApp={(id) => stopMutation.mutate(id)}
+                    onRestartApp={(id) => restartMutation.mutate(id)}
+                    onUninstallApp={(id) => uninstallMutation.mutate(id)}
+                  />
+                </ComponentErrorBoundary>
               );
             })}
           </div>
@@ -160,7 +166,9 @@ export default function Dashboard() {
         </div>
 
         {deploymentsLoading ? (
-          <div className="text-muted">Loading...</div>
+          <LoadingSpinner message="Loading deployments..." />
+        ) : deploymentsError ? (
+          <QueryError error={deploymentsError} refetch={refetchDeployments} message="Failed to load deployments" />
         ) : deployments?.length === 0 ? (
           <div className="card p-6 md:p-8 text-center">
             <Package size={40} className="mx-auto mb-4 text-gray-400 dark:text-gray-600" />

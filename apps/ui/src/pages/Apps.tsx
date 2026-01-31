@@ -8,6 +8,8 @@ import ConnectionInfoModal from '../components/ConnectionInfoModal';
 import LogViewerModal from '../components/LogViewerModal';
 import EditConfigModal from '../components/EditConfigModal';
 import Modal from '../components/Modal';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { QueryError } from '../components/QueryError';
 import type { AppManifest, Deployment } from '../api/client';
 
 type ConfirmAction = {
@@ -18,7 +20,7 @@ type ConfirmAction = {
 };
 
 export default function Apps() {
-  const { data: apps, isLoading: appsLoading } = useApps();
+  const { data: apps, isLoading: appsLoading, error: appsError, refetch: refetchApps } = useApps();
   const { data: deployments } = useDeployments();
   const { data: servers } = useServers();
   const [selectedApp, setSelectedApp] = useState<AppManifest | null>(null);
@@ -129,9 +131,9 @@ export default function Apps() {
       </div>
 
       {appsLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="text-gray-400">Loading apps...</div>
-        </div>
+        <LoadingSpinner message="Loading apps..." />
+      ) : appsError ? (
+        <QueryError error={appsError} refetch={refetchApps} message="Failed to load apps" />
       ) : (
         categories.map((category) => {
           const categoryApps = apps?.filter((app) => app.category === category.id);
