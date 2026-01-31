@@ -47,6 +47,72 @@ Keep GroupManagement.tsx as a single component. Do not split.
 
 ---
 
+## ADR-003: Accept InstallModal Chunk Size (60.78 kB)
+
+**Date:** 2026-01-31
+**Status:** Accepted
+**Context:** Investigated why the "InstallModal" chunk is 60.78 kB (17.45 kB gzipped).
+
+### Decision
+
+Accept the current chunk size as optimal. No optimization needed.
+
+### Analysis
+
+The "InstallModal" chunk is actually a **shared chunk** containing multiple components:
+
+| Component | Description |
+|-----------|-------------|
+| AppDetailModal | App details view (imports 3 nested modals) |
+| ConnectionInfoModal | Connection credentials display |
+| LogViewerModal | Real-time log viewer |
+| EditConfigModal | Configuration editor |
+| InstallModal | App installation wizard |
+| StatusBadge | Status indicator component |
+| CaddyRoutesPanel | Caddy routes display |
+
+**Icon usage:** ~35 unique lucide-react icons across these components (~10-15 kB)
+
+### Why Vite Creates This Chunk
+
+These components are shared between multiple lazy-loaded routes:
+- Apps.tsx → AppDetailModal, InstallModal
+- ServerCard.tsx → All modals
+- Dashboard.tsx → StatusBadge
+
+Vite deduplicates by creating a shared chunk, preventing code duplication.
+
+### Size Breakdown
+
+| Category | Estimated Size |
+|----------|---------------|
+| 7 React components | ~35-40 kB |
+| ~35 lucide-react icons | ~10-15 kB |
+| Utilities & glue code | ~5-10 kB |
+| **Total** | ~60 kB |
+| **Gzipped** | 17.45 kB |
+
+### Reasons Not to Optimize
+
+1. **Already efficient** - Vite correctly deduplicates shared code
+2. **Gzip performance** - 17.45 kB is acceptable for 7 components
+3. **Tree-shaking works** - Only used icons are included
+4. **Splitting adds latency** - Lazy-loading nested modals would delay user interactions
+
+### Future Reconsideration
+
+Consider optimization if:
+- Chunk grows beyond 100 kB raw / 30 kB gzipped
+- User complaints about modal loading latency
+- New heavy dependencies are added to these modals
+
+Possible future optimizations:
+- Lazy-load nested modals in AppDetailModal
+- Consolidate icon usage across components
+- Split AppDetailModal into smaller pieces
+
+---
+
 ## ADR-002: Do Not Implement Centralized Modal Manager
 
 **Date:** 2026-01-31
