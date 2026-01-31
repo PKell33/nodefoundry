@@ -23,6 +23,7 @@ import { csrfProtection } from './middleware/csrf.js';
 import { config } from '../config.js';
 import { authService } from '../services/authService.js';
 import { createRequestLogger, apiLogger } from '../lib/logger.js';
+import { isServerShuttingDown } from '../lib/shutdownState.js';
 
 export function createApi(): express.Application {
   const app = express();
@@ -94,16 +95,11 @@ export function createApi(): express.Application {
 
   // Health check endpoints (unauthenticated)
   // Simple liveness probe
-  app.get('/health', async (_req, res) => {
+  app.get('/health', (_req, res) => {
     // Check if server is shutting down
-    try {
-      const { isServerShuttingDown } = await import('../index.js');
-      if (isServerShuttingDown()) {
-        res.status(503).json({ status: 'shutting_down', timestamp: new Date().toISOString() });
-        return;
-      }
-    } catch {
-      // Ignore import errors during startup
+    if (isServerShuttingDown()) {
+      res.status(503).json({ status: 'shutting_down', timestamp: new Date().toISOString() });
+      return;
     }
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });

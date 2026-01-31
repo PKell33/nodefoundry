@@ -8,7 +8,7 @@ import { getDb } from '../db/index.js';
 import { wsLogger } from '../lib/logger.js';
 import { mutexManager } from '../lib/mutexManager.js';
 import { proxyManager } from '../services/proxyManager.js';
-import { broadcastDeploymentStatus } from './index.js';
+import { broadcastDeploymentStatus } from './broadcast.js';
 import type { AgentStatusReport } from '@ownprem/shared';
 import { AppStatusValues, DeploymentStatusValues, TRANSIENT_DEPLOYMENT_STATES } from '@ownprem/shared';
 import type { DeploymentRow } from './agentTypes.js';

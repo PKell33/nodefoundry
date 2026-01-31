@@ -1,50 +1,25 @@
 import { Server as HttpServer } from 'http';
 import { Server as SocketServer } from 'socket.io';
 import { setupAgentHandler, shutdownAgentHandler } from './agentHandler.js';
+import { setIo, getIo, broadcastDeploymentStatus } from './broadcast.js';
 import { wsLogger } from '../lib/logger.js';
 
-let io: SocketServer | null = null;
+// Re-export from broadcast module for backwards compatibility
+export { getIo, broadcastDeploymentStatus };
 
 export function createWebSocket(httpServer: HttpServer): SocketServer {
-  io = new SocketServer(httpServer, {
+  const io = new SocketServer(httpServer, {
     cors: {
       origin: '*',
       methods: ['GET', 'POST'],
     },
   });
 
+  setIo(io);
   setupAgentHandler(io);
 
   wsLogger.info('WebSocket server initialized');
   return io;
-}
-
-export function getIo(): SocketServer {
-  if (!io) {
-    throw new Error('WebSocket server not initialized');
-  }
-  return io;
-}
-
-/**
- * Broadcast deployment status change to authenticated UI clients only.
- * Sensitive information should not be exposed to unauthenticated connections.
- */
-export function broadcastDeploymentStatus(data: {
-  deploymentId: string;
-  appName: string;
-  serverId: string;
-  status: string;
-  previousStatus?: string;
-  routeActive?: boolean;
-}): void {
-  if (io) {
-    // Emit only to authenticated clients (joined 'authenticated' room)
-    io.to('authenticated').emit('deployment:status', {
-      ...data,
-      timestamp: new Date().toISOString(),
-    });
-  }
 }
 
 /**
@@ -52,7 +27,11 @@ export function broadcastDeploymentStatus(data: {
  * Notifies all agents, waits for pending commands, then closes connections.
  */
 export async function shutdownWebSocket(): Promise<void> {
-  if (!io) {
+  let io: SocketServer;
+  try {
+    io = getIo();
+  } catch {
+    // WebSocket not initialized
     return;
   }
 
@@ -61,10 +40,10 @@ export async function shutdownWebSocket(): Promise<void> {
 
   // Close the Socket.io server
   await new Promise<void>((resolve) => {
-    io?.close(() => {
+    io.close(() => {
       resolve();
     });
   });
 
-  io = null;
+  setIo(null);
 }

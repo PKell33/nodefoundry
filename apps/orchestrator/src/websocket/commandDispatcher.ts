@@ -4,7 +4,7 @@ import { wsLogger } from '../lib/logger.js';
 import { mutexManager } from '../lib/mutexManager.js';
 import { updateDeploymentStatus } from '../lib/deploymentHelpers.js';
 import { proxyManager } from '../services/proxyManager.js';
-import { broadcastDeploymentStatus } from './index.js';
+import { broadcastDeploymentStatus } from './broadcast.js';
 import type { CommandResult, CommandAck, DeploymentStatus } from '@ownprem/shared';
 
 // Pending commands - maps commandId to tracking info for ack/timeout

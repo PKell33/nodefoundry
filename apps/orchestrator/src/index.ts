@@ -12,17 +12,7 @@ import { startMountStatusChecker, stopMountStatusChecker } from './jobs/mountSta
 import { startCertRenewal, stopCertRenewal } from './jobs/certRenewal.js';
 import { runStartupRecovery } from './jobs/stateRecovery.js';
 import logger from './lib/logger.js';
-
-// Track shutdown state for graceful shutdown
-let isShuttingDown = false;
-
-/**
- * Check if the server is shutting down.
- * Used by health endpoints to return 503 during shutdown.
- */
-export function isServerShuttingDown(): boolean {
-  return isShuttingDown;
-}
+import { isServerShuttingDown, setServerShuttingDown } from './lib/shutdownState.js';
 
 async function main(): Promise<void> {
   logger.info({ env: config.nodeEnv }, 'Starting Ownprem Orchestrator');
@@ -82,11 +72,11 @@ async function main(): Promise<void> {
 
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
-    if (isShuttingDown) {
+    if (isServerShuttingDown()) {
       logger.warn('Shutdown already in progress');
       return;
     }
-    isShuttingDown = true;
+    setServerShuttingDown(true);
     logger.info('Starting graceful shutdown...');
 
     try {
