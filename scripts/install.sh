@@ -4,6 +4,13 @@ set -e
 # Ownprem Installation Script
 # Usage: sudo ./install.sh [options]
 #
+# System Requirements:
+#   - Debian 11+ or Ubuntu 22.04+
+#   - Node.js 20.x (installed via NodeSource if not present)
+#   - Build tools for native npm modules: build-essential, python3, g++
+#   - 1GB RAM minimum, 2GB recommended
+#   - 5GB disk space
+#
 # Options:
 #   --type TYPE       Install type: orchestrator, agent, or both (default: both)
 #   --domain DOMAIN   Domain name (default: ownprem.local)
@@ -136,6 +143,17 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
+# Check for supported OS (Debian/Ubuntu)
+if [[ ! -f /etc/debian_version ]]; then
+    log_warn "This script is designed for Debian/Ubuntu systems."
+    log_warn "Installation may not work correctly on other distributions."
+    read -p "Continue anyway? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        exit 1
+    fi
+fi
+
 # Validate install type
 if [[ ! "$INSTALL_TYPE" =~ ^(orchestrator|agent|both)$ ]]; then
     log_error "Invalid install type: $INSTALL_TYPE"
@@ -177,9 +195,14 @@ if [[ "$SKIP_DEPS" != "true" ]]; then
     log_step "Installing system dependencies..."
 
     apt-get update
-    apt-get install -y curl git build-essential openssl rsync libcap2-bin
+    # Install build tools needed for native npm modules (better-sqlite3, sharp, etc.)
+    # - build-essential: gcc, g++, make
+    # - python3: required by node-gyp for building native modules
+    # - libcap2-bin: for setcap (Linux capabilities)
+    apt-get install -y curl git build-essential python3 openssl rsync libcap2-bin
 
     # Install Node.js if not present or wrong version
+    # NOTE: Node.js 20.x is not in Debian stable, requires NodeSource repository
     NEED_NODE="false"
     if ! command -v node &> /dev/null; then
         NEED_NODE="true"

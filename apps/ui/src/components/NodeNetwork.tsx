@@ -27,7 +27,7 @@ const COLORS = {
 export function NodeNetwork() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodesRef = useRef<Node[]>([]);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number>(0);
   const draggedNodeRef = useRef<Node | null>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
 
