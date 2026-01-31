@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { readFile } from 'fs/promises';
+import { ErrorCodes } from '@ownprem/shared';
 import { getDb, runInTransaction } from '../db/index.js';
 import { secretsManager } from './secretsManager.js';
 import { configRenderer } from './configRenderer.js';
@@ -14,6 +15,7 @@ import { setDeploymentStatus, updateDeploymentStatus } from '../lib/deploymentHe
 import { auditService } from './auditService.js';
 import { getAppInfo, checkCanUninstall, validateInstall } from './deploymentValidator.js';
 import { startDeployment, stopDeployment, restartDeployment } from './deploymentLifecycle.js';
+import { createTypedError, Errors } from '../api/middleware/error.js';
 import type { AppManifest, Deployment, DeploymentStatus, ConfigFile } from '@ownprem/shared';
 
 // CA certificate paths to check (in order of preference)
@@ -255,11 +257,17 @@ export class Deployer {
         }, deploymentId);
       } catch (err) {
         // Agent disconnected or command failed
-        throw new Error(`Install command failed: ${err instanceof Error ? err.message : String(err)}`);
+        throw createTypedError(
+          ErrorCodes.COMMAND_FAILED,
+          `Install command failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
 
       if (installResult.status !== 'success') {
-        throw new Error(`Install failed on agent: ${installResult.message || 'Unknown error'}`);
+        throw createTypedError(
+          ErrorCodes.COMMAND_FAILED,
+          `Install failed on agent: ${installResult.message || 'Unknown error'}`
+        );
       }
 
       logger.info({ deploymentId, appName }, 'Install command completed successfully');
@@ -299,7 +307,7 @@ export class Deployer {
       // Step 5: Update Caddy config and reload
       const caddySuccess = await proxyManager.updateAndReload();
       if (!caddySuccess) {
-        throw new Error('Failed to update Caddy configuration');
+        throw createTypedError(ErrorCodes.CADDY_UPDATE_FAILED, 'Failed to update Caddy configuration');
       }
 
       // Audit log
@@ -334,7 +342,7 @@ export class Deployer {
     const deployment = await this.getDeployment(deploymentId);
 
     if (!deployment) {
-      throw new Error('Deployment not found');
+      throw Errors.deploymentNotFound(deploymentId);
     }
 
     requireAgentConnected(deployment.serverId);
@@ -345,7 +353,10 @@ export class Deployer {
     try {
       manifest = JSON.parse(appRow.manifest) as AppManifest;
     } catch (e) {
-      throw new Error(`Failed to parse manifest for app ${deployment.appName}: ${e instanceof Error ? e.message : String(e)}`);
+      throw createTypedError(
+        ErrorCodes.INVALID_CONFIG,
+        `Failed to parse manifest for app ${deployment.appName}: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
 
     // Merge config
@@ -380,7 +391,7 @@ export class Deployer {
   async start(deploymentId: string): Promise<Deployment> {
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment) {
-      throw new Error('Deployment not found');
+      throw Errors.deploymentNotFound(deploymentId);
     }
     return startDeployment(deployment, this.getDeployment.bind(this));
   }
@@ -388,7 +399,7 @@ export class Deployer {
   async stop(deploymentId: string): Promise<Deployment> {
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment) {
-      throw new Error('Deployment not found');
+      throw Errors.deploymentNotFound(deploymentId);
     }
     return stopDeployment(deployment, this.getDeployment.bind(this));
   }
@@ -396,7 +407,7 @@ export class Deployer {
   async restart(deploymentId: string): Promise<Deployment> {
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment) {
-      throw new Error('Deployment not found');
+      throw Errors.deploymentNotFound(deploymentId);
     }
     return restartDeployment(deployment);
   }
@@ -404,7 +415,7 @@ export class Deployer {
   async uninstall(deploymentId: string): Promise<void> {
     const deployment = await this.getDeployment(deploymentId);
     if (!deployment) {
-      throw new Error('Deployment not found');
+      throw Errors.deploymentNotFound(deploymentId);
     }
 
     requireAgentConnected(deployment.serverId);

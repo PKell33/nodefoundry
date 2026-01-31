@@ -514,7 +514,24 @@ if [[ "$SKIP_FIREWALL" != "true" ]]; then
 fi
 
 # ============================================
-# Step 11: Start Services
+# Step 11: Install Log Rotation
+# ============================================
+log_step "Installing log rotation configuration..."
+
+if [[ -f "$REPO_DIR/scripts/logrotate/ownprem.conf" ]]; then
+    cp "$REPO_DIR/scripts/logrotate/ownprem.conf" /etc/logrotate.d/ownprem
+    chmod 644 /etc/logrotate.d/ownprem
+    log_info "Log rotation configuration installed"
+else
+    log_warn "Log rotation configuration not found, skipping"
+fi
+
+# Create log directory structure
+mkdir -p "$LOG_DIR/apps"
+chown -R "$OWNPREM_USER:$OWNPREM_GROUP" "$LOG_DIR"
+
+# ============================================
+# Step 12: Start Services
 # ============================================
 log_step "Starting services..."
 

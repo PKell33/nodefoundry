@@ -61,7 +61,10 @@ class Agent {
 
   private onServerShutdown(): void {
     logger.info('Orchestrator is shutting down, initiating graceful shutdown');
-    this.shutdown();
+    this.shutdown().catch((err) => {
+      logger.error({ err }, 'Error during shutdown');
+      process.exit(1);
+    });
   }
 
   async shutdown(): Promise<void> {
@@ -319,12 +322,14 @@ agent.start().catch((err) => {
 });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
-  logger.info('Received SIGINT');
-  agent.shutdown();
-});
+// Use an async handler wrapper to properly await shutdown and catch errors
+const handleShutdownSignal = (signal: string) => {
+  logger.info(`Received ${signal}`);
+  agent.shutdown().catch((err) => {
+    logger.error({ err }, 'Error during shutdown');
+    process.exit(1);
+  });
+};
 
-process.on('SIGTERM', () => {
-  logger.info('Received SIGTERM');
-  agent.shutdown();
-});
+process.on('SIGINT', () => handleShutdownSignal('SIGINT'));
+process.on('SIGTERM', () => handleShutdownSignal('SIGTERM'));

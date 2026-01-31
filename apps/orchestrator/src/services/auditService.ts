@@ -5,6 +5,7 @@ import logger from '../lib/logger.js';
  * Audit event types for tracking system activities.
  */
 export type AuditAction =
+  // Deployment lifecycle
   | 'deployment_installed'
   | 'deployment_uninstalled'
   | 'deployment_started'
@@ -12,18 +13,43 @@ export type AuditAction =
   | 'deployment_restarted'
   | 'deployment_configured'
   | 'secrets_rotated'
+  // Server management
   | 'server_registered'
   | 'server_deleted'
   | 'server_updated'
+  // Agent tokens
   | 'agent_token_created'
   | 'agent_token_revoked'
-  | 'user_login'
+  // User authentication
+  | 'login'
+  | 'login_failed'
+  | 'user_login'  // Deprecated: use 'login'
   | 'user_logout'
+  | 'password_changed'
+  // Session management
+  | 'session_revoked'
+  | 'sessions_revoked'
+  | 'sessions_cleanup'
+  // User management
   | 'user_created'
+  | 'user_deleted'
+  | 'user_promoted_to_admin'
+  | 'user_demoted_from_admin'
   | 'authorization_denied'
+  // TOTP/2FA
+  | 'totp_setup_started'
   | 'totp_enabled'
   | 'totp_disabled'
-  | 'sessions_cleanup'
+  | 'totp_backup_codes_regenerated'
+  | 'totp_reset_by_admin'
+  // Group management
+  | 'group_created'
+  | 'group_updated'
+  | 'group_deleted'
+  | 'user_added_to_group'
+  | 'user_role_updated'
+  | 'user_removed_from_group'
+  // Backup and config
   | 'backup_created'
   | 'backup_restored'
   | 'backup_deleted'
@@ -31,6 +57,7 @@ export type AuditAction =
   | 'config_imported'
   | 'state_recovery'
   | 'pending_commands_recovery'
+  // Mount management
   | 'mount_created'
   | 'mount_updated'
   | 'mount_deleted'
@@ -38,12 +65,22 @@ export type AuditAction =
   | 'server_mount_removed'
   | 'storage_mounted'
   | 'storage_unmounted'
+  // Certificate management
   | 'certificate_issued'
   | 'certificate_renewed'
   | 'certificate_revoked'
-  | 'ca_initialized';
+  | 'ca_initialized'
+  // Caddy HA
+  | 'caddy_instance_registered'
+  | 'caddy_instance_unregistered'
+  | 'caddy_failover_triggered'
+  | 'caddy_failover_completed'
+  | 'caddy_primary_changed'
+  | 'caddy_instance_health_changed'
+  | 'caddy_config_synced'
+  | 'caddy_vip_configured';
 
-export type ResourceType = 'deployment' | 'server' | 'user' | 'auth' | 'system' | 'mount' | 'server_mount' | 'certificate';
+export type ResourceType = 'deployment' | 'server' | 'user' | 'auth' | 'system' | 'mount' | 'server_mount' | 'certificate' | 'session' | 'group' | 'caddy_ha';
 
 export interface AuditEntry {
   action: AuditAction;

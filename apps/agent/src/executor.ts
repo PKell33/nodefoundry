@@ -267,19 +267,19 @@ export class Executor {
         if (metadata.serviceName) {
           serviceName = metadata.serviceName;
         }
-      } catch {
-        // Ignore metadata parse errors
+      } catch (err) {
+        executorLogger.debug({ appName, metadataPath, err }, 'Ignored metadata parse error during uninstall');
       }
     }
 
     // Stop service first
-    await this.systemctl('stop', appName).catch(() => {
-      // Ignore errors if service doesn't exist
+    await this.systemctl('stop', appName).catch((err) => {
+      executorLogger.debug({ appName, err }, 'Ignored stop error during uninstall (service may not exist)');
     });
 
     // Disable service
-    await this.systemctl('disable', appName).catch(() => {
-      // Ignore errors
+    await this.systemctl('disable', appName).catch((err) => {
+      executorLogger.debug({ appName, err }, 'Ignored disable error during uninstall (service may not exist)');
     });
 
     // Unregister the service from privileged helper
@@ -288,8 +288,8 @@ export class Executor {
       if (unregisterResult.success) {
         executorLogger.info(`Unregistered service: ${serviceName}`);
       }
-    } catch {
-      // Ignore errors - service may not have been registered
+    } catch (err) {
+      executorLogger.debug({ serviceName, err }, 'Ignored unregister error during uninstall (service may not have been registered)');
     }
 
     // Run uninstall script if it exists

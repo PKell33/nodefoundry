@@ -14,6 +14,9 @@ const BUSY_RETRY_MAX_ATTEMPTS = 5;
 const BUSY_RETRY_BASE_DELAY_MS = 50;
 const BUSY_TIMEOUT_MS = 5000; // 5 seconds busy timeout
 
+// Query timing configuration
+const SLOW_QUERY_THRESHOLD_MS = 100; // Log warning for queries slower than this
+
 export function getDb(): Database.Database {
   if (!db) {
     throw new Error('Database not initialized. Call initDb() first.');
@@ -285,6 +288,49 @@ export function closeDb(): void {
 export function runInTransaction<T>(fn: () => T): T {
   const database = getDb();
   return database.transaction(fn)();
+}
+
+/**
+ * Run a database operation with timing instrumentation.
+ * Logs slow queries (over 100ms) at warn level.
+ *
+ * @param operationName - A descriptive name for the operation (for logging)
+ * @param fn - The database operation to run
+ * @returns The return value of the function
+ */
+export function withQueryTiming<T>(operationName: string, fn: () => T): T {
+  const start = Date.now();
+  try {
+    return fn();
+  } finally {
+    const durationMs = Date.now() - start;
+    if (durationMs > SLOW_QUERY_THRESHOLD_MS) {
+      dbLogger.warn({ operation: operationName, durationMs }, 'Slow database query detected');
+    } else {
+      dbLogger.debug({ operation: operationName, durationMs }, 'Query executed');
+    }
+  }
+}
+
+/**
+ * Async version of withQueryTiming for operations that involve async work.
+ *
+ * @param operationName - A descriptive name for the operation (for logging)
+ * @param fn - The async database operation to run
+ * @returns The return value of the function
+ */
+export async function withQueryTimingAsync<T>(operationName: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  try {
+    return await fn();
+  } finally {
+    const durationMs = Date.now() - start;
+    if (durationMs > SLOW_QUERY_THRESHOLD_MS) {
+      dbLogger.warn({ operation: operationName, durationMs }, 'Slow database operation detected');
+    } else {
+      dbLogger.debug({ operation: operationName, durationMs }, 'Operation executed');
+    }
+  }
 }
 
 /**
