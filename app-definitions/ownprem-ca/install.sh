@@ -28,7 +28,10 @@ mkdir -p "$APP_DIR/templates"
 
 # Cleanup function for temporary files
 cleanup_temp() {
-    [[ -n "${TEMP_DIR:-}" && -d "${TEMP_DIR}" ]] && rm -rf "${TEMP_DIR}"
+    if [[ -n "${TEMP_DIR:-}" && -d "${TEMP_DIR}" ]]; then
+        rm -rf "${TEMP_DIR}"
+    fi
+    return 0  # Ensure cleanup always succeeds
 }
 trap cleanup_temp EXIT
 
