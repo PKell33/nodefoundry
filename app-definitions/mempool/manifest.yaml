@@ -89,7 +89,7 @@ configSchema:
 
 logging:
   logFile: "${appDir}/logs/mempool.log"
-  serviceName: mempool
+  serviceName: ownprem-mempool
 
 resources:
   minDisk: 20GB

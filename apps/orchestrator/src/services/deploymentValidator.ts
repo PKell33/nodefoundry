@@ -5,6 +5,7 @@
 
 import { getDb } from '../db/index.js';
 import { dependencyResolver } from './dependencyResolver.js';
+import { serviceRegistry } from './serviceRegistry.js';
 import logger from '../lib/logger.js';
 import type { AppManifest } from '@ownprem/shared';
 
@@ -101,6 +102,34 @@ export function checkConflicts(serverId: string, appName: string, conflicts?: st
 }
 
 /**
+ * P1: Check for port conflicts with already deployed services.
+ */
+export async function checkPortConflicts(
+  serverId: string,
+  appName: string,
+  manifest: AppManifest
+): Promise<void> {
+  const providedServices = manifest.provides || [];
+  if (providedServices.length === 0) return;
+
+  const portsToCheck = providedServices.map(svc => ({
+    port: svc.port,
+    serviceName: svc.name,
+  }));
+
+  const conflicts = await serviceRegistry.checkPortConflicts(serverId, portsToCheck);
+
+  if (conflicts.length > 0) {
+    const conflictDetails = conflicts
+      .map(c => `port ${c.port} (used by ${c.appName}/${c.serviceName})`)
+      .join(', ');
+    throw new Error(
+      `Cannot install ${appName}: port conflict detected - ${conflictDetails}`
+    );
+  }
+}
+
+/**
  * Validate app dependencies.
  */
 export async function validateDependencies(
@@ -156,6 +185,9 @@ export async function validateInstall(
   checkNotAlreadyDeployed(serverId, appName);
   checkSingletonConstraint(appName, appInfo.isSingleton);
   checkConflicts(serverId, appName, appInfo.manifest.conflicts);
+
+  // P1: Check for port conflicts before deployment
+  await checkPortConflicts(serverId, appName, appInfo.manifest);
 
   const validationResult = await validateDependencies(appInfo.manifest, serverId, appName);
 

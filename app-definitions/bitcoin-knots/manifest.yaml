@@ -41,7 +41,7 @@ tor:
 
 logging:
   logFile: "${appDir}/logs/bitcoin-knots.log"
-  serviceName: bitcoind
+  serviceName: ownprem-bitcoin-knots
 
 configSchema:
   - name: network

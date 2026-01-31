@@ -66,21 +66,22 @@ fi
 
 # Create systemd service
 if [ "$(id -u)" = "0" ]; then
-  cat > /etc/systemd/system/electrs.service << EOF
+  # Generate systemd service file with properly quoted paths
+  cat > /etc/systemd/system/ownprem-electrs.service << EOF
 [Unit]
 Description=Electrs - Electrum Server
-After=network-online.target bitcoin.service
+After=network-online.target ownprem-bitcoin-core.service
 Wants=network-online.target
-Requires=bitcoin.service
+Requires=ownprem-bitcoin-core.service
 
 [Service]
 Type=simple
 User=electrs
 Group=electrs
 
-ExecStart=${APP_DIR}/electrs \\
-  --conf ${DATA_DIR}/electrs.toml \\
-  --db-dir ${DATA_DIR}/db
+ExecStart="${APP_DIR}/electrs" \\
+  --conf "${DATA_DIR}/electrs.toml" \\
+  --db-dir "${DATA_DIR}/db"
 
 Restart=on-failure
 RestartSec=30
@@ -96,15 +97,15 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable electrs
+  systemctl enable ownprem-electrs
   echo "Systemd service created"
 else
   echo "Not running as root - skipping systemd service creation"
-  cat > "$APP_DIR/start.sh" << EOF
+  cat > "${APP_DIR}/start.sh" << EOF
 #!/bin/bash
-${APP_DIR}/electrs --conf ${DATA_DIR}/electrs.toml --db-dir ${DATA_DIR}/db
+"${APP_DIR}/electrs" --conf "${DATA_DIR}/electrs.toml" --db-dir "${DATA_DIR}/db"
 EOF
-  chmod +x "$APP_DIR/start.sh"
+  chmod +x "${APP_DIR}/start.sh"
 fi
 
 echo "Electrs ${VERSION} installed successfully!"

@@ -13,6 +13,13 @@ interface ServiceRow {
   status: string;
 }
 
+export interface PortConflict {
+  port: number;
+  serviceName: string;
+  deploymentId: string;
+  appName: string;
+}
+
 interface ServerRow {
   id: string;
   host: string | null;
@@ -160,6 +167,39 @@ export class ServiceRegistry {
     const db = getDb();
     const rows = db.prepare('SELECT * FROM services ORDER BY service_name').all() as ServiceRow[];
     return rows.map(row => this.rowToService(row));
+  }
+
+  /**
+   * P1: Check for port conflicts before deployment.
+   * Returns list of conflicting ports with details about which app is using them.
+   */
+  async checkPortConflicts(
+    serverId: string,
+    ports: Array<{ port: number; serviceName: string }>
+  ): Promise<PortConflict[]> {
+    const db = getDb();
+    const conflicts: PortConflict[] = [];
+
+    for (const { port, serviceName } of ports) {
+      // Check if any service on this server is already using this port
+      const existing = db.prepare(`
+        SELECT s.port, s.service_name, s.deployment_id, d.app_name
+        FROM services s
+        JOIN deployments d ON s.deployment_id = d.id
+        WHERE s.server_id = ? AND s.port = ?
+      `).get(serverId, port) as { port: number; service_name: string; deployment_id: string; app_name: string } | undefined;
+
+      if (existing) {
+        conflicts.push({
+          port: existing.port,
+          serviceName: existing.service_name,
+          deploymentId: existing.deployment_id,
+          appName: existing.app_name,
+        });
+      }
+    }
+
+    return conflicts;
   }
 
   private rowToService(row: ServiceRow): Service {

@@ -59,7 +59,9 @@ if [ "$(id -u)" = "0" ]; then
     regtest) NETWORK_FLAG="-regtest" ;;
   esac
 
-  cat > /etc/systemd/system/bitcoin.service << EOF
+  # Generate systemd service file with properly quoted paths
+  # Note: NETWORK_FLAG is intentionally unquoted as it may be empty or contain a flag
+  cat > /etc/systemd/system/ownprem-bitcoin-core.service << EOF
 [Unit]
 Description=Bitcoin Core
 After=network-online.target
@@ -69,8 +71,8 @@ Wants=network-online.target
 Type=simple
 User=bitcoin
 Group=bitcoin
-ExecStart=${APP_DIR}/bitcoind ${NETWORK_FLAG} -datadir=${DATA_DIR} -conf=${DATA_DIR}/bitcoin.conf -server -daemon=0
-ExecStop=${APP_DIR}/bitcoin-cli ${NETWORK_FLAG} -datadir=${DATA_DIR} stop
+ExecStart="${APP_DIR}/bitcoind" ${NETWORK_FLAG} -datadir="${DATA_DIR}" -conf="${DATA_DIR}/bitcoin.conf" -server -daemon=0
+ExecStop="${APP_DIR}/bitcoin-cli" ${NETWORK_FLAG} -datadir="${DATA_DIR}" stop
 Restart=on-failure
 RestartSec=30
 TimeoutStartSec=infinity
@@ -84,7 +86,7 @@ WantedBy=multi-user.target
 EOF
 
   systemctl daemon-reload
-  systemctl enable bitcoin
+  systemctl enable ownprem-bitcoin-core
 fi
 
 echo "Bitcoin Core ${VERSION} installed successfully!"

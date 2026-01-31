@@ -34,6 +34,13 @@ export class DependencyResolver {
     const errors: string[] = [];
     const warnings: string[] = [];
 
+    // P2: Check for circular dependencies
+    const cycleError = await this.detectCycles(manifest.name);
+    if (cycleError) {
+      errors.push(cycleError);
+      return { valid: false, errors, warnings };
+    }
+
     for (const req of manifest.requires || []) {
       const provider = await serviceRegistry.findService(req.service);
 
@@ -62,6 +69,63 @@ export class DependencyResolver {
       errors,
       warnings,
     };
+  }
+
+  /**
+   * P2: Detect circular dependencies in the dependency graph.
+   * Uses DFS with a recursion stack to detect cycles.
+   * Returns an error message if a cycle is detected, null otherwise.
+   */
+  private async detectCycles(startAppName: string): Promise<string | null> {
+    const db = getDb();
+    const visited = new Set<string>();
+    const recursionStack = new Set<string>();
+    const path: string[] = [];
+
+    const dfs = async (appName: string): Promise<string | null> => {
+      // If in recursion stack, we found a cycle
+      if (recursionStack.has(appName)) {
+        const cycleStart = path.indexOf(appName);
+        const cyclePath = [...path.slice(cycleStart), appName];
+        return `Circular dependency detected: ${cyclePath.join(' -> ')}`;
+      }
+
+      // Already fully processed this node
+      if (visited.has(appName)) {
+        return null;
+      }
+
+      visited.add(appName);
+      recursionStack.add(appName);
+      path.push(appName);
+
+      // Get manifest for this app
+      const row = db.prepare('SELECT manifest FROM app_registry WHERE name = ?').get(appName) as AppRegistryRow | undefined;
+      if (row) {
+        const manifest = JSON.parse(row.manifest) as AppManifest;
+
+        // Check each required service
+        for (const req of manifest.requires || []) {
+          // Find the app that provides this service
+          const service = await serviceRegistry.findService(req.service);
+          if (service) {
+            const deployment = db.prepare('SELECT app_name FROM deployments WHERE id = ?')
+              .get(service.deploymentId) as { app_name: string } | undefined;
+
+            if (deployment) {
+              const error = await dfs(deployment.app_name);
+              if (error) return error;
+            }
+          }
+        }
+      }
+
+      path.pop();
+      recursionStack.delete(appName);
+      return null;
+    };
+
+    return dfs(startAppName);
   }
 
   async resolve(

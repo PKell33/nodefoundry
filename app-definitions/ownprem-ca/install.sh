@@ -26,30 +26,82 @@ echo "Installing OwnPrem CA (step-ca) binaries..."
 mkdir -p "$APP_DIR/bin"
 mkdir -p "$APP_DIR/templates"
 
-# Download step-ca if not present
+# Cleanup function for temporary files
+cleanup_temp() {
+    [[ -n "${TEMP_DIR:-}" && -d "${TEMP_DIR}" ]] && rm -rf "${TEMP_DIR}"
+}
+trap cleanup_temp EXIT
+
+# Download and verify step-ca if not present
 if [[ ! -f "$APP_DIR/bin/step-ca" ]]; then
     echo "Downloading step-ca v${STEP_CA_VERSION}..."
     TEMP_DIR=$(mktemp -d)
-    curl -sSL "https://dl.smallstep.com/gh-release/certificates/gh-release-header/v${STEP_CA_VERSION}/step-ca_linux_${ARCH}.tar.gz" \
-        -o "$TEMP_DIR/step-ca.tar.gz"
-    tar -xzf "$TEMP_DIR/step-ca.tar.gz" -C "$TEMP_DIR"
-    mv "$TEMP_DIR/step-ca_linux_${ARCH}/step-ca" "$APP_DIR/bin/"
-    rm -rf "$TEMP_DIR"
-    chmod +x "$APP_DIR/bin/step-ca"
-    echo "step-ca installed to $APP_DIR/bin/"
+
+    STEP_CA_URL="https://dl.smallstep.com/gh-release/certificates/gh-release-header/v${STEP_CA_VERSION}/step-ca_linux_${ARCH}.tar.gz"
+    STEP_CA_CHECKSUMS_URL="https://dl.smallstep.com/gh-release/certificates/gh-release-header/v${STEP_CA_VERSION}/checksums.txt"
+
+    curl -fsSL "${STEP_CA_URL}" -o "${TEMP_DIR}/step-ca.tar.gz"
+    curl -fsSL "${STEP_CA_CHECKSUMS_URL}" -o "${TEMP_DIR}/checksums.txt"
+
+    # Verify checksum
+    cd "${TEMP_DIR}"
+    EXPECTED_HASH=$(grep "step-ca_linux_${ARCH}.tar.gz" checksums.txt | awk '{print $1}')
+    if [[ -z "${EXPECTED_HASH}" ]]; then
+        echo "ERROR: Could not find checksum for step-ca_linux_${ARCH}.tar.gz"
+        exit 1
+    fi
+    ACTUAL_HASH=$(sha256sum step-ca.tar.gz | awk '{print $1}')
+    if [[ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]]; then
+        echo "ERROR: Checksum verification failed for step-ca!"
+        echo "Expected: ${EXPECTED_HASH}"
+        echo "Actual:   ${ACTUAL_HASH}"
+        exit 1
+    fi
+    echo "Checksum verified for step-ca"
+
+    tar -xzf step-ca.tar.gz
+    mv "step-ca_linux_${ARCH}/step-ca" "${APP_DIR}/bin/"
+    chmod +x "${APP_DIR}/bin/step-ca"
+    echo "step-ca installed to ${APP_DIR}/bin/"
+
+    rm -rf "${TEMP_DIR}"
+    TEMP_DIR=""
 fi
 
-# Download step CLI if not present
+# Download and verify step CLI if not present
 if [[ ! -f "$APP_DIR/bin/step" ]]; then
     echo "Downloading step CLI v${STEP_CLI_VERSION}..."
     TEMP_DIR=$(mktemp -d)
-    curl -sSL "https://dl.smallstep.com/gh-release/cli/gh-release-header/v${STEP_CLI_VERSION}/step_linux_${ARCH}.tar.gz" \
-        -o "$TEMP_DIR/step.tar.gz"
-    tar -xzf "$TEMP_DIR/step.tar.gz" -C "$TEMP_DIR"
-    mv "$TEMP_DIR/step_linux_${ARCH}/bin/step" "$APP_DIR/bin/"
-    rm -rf "$TEMP_DIR"
-    chmod +x "$APP_DIR/bin/step"
-    echo "step CLI installed to $APP_DIR/bin/"
+
+    STEP_CLI_URL="https://dl.smallstep.com/gh-release/cli/gh-release-header/v${STEP_CLI_VERSION}/step_linux_${ARCH}.tar.gz"
+    STEP_CLI_CHECKSUMS_URL="https://dl.smallstep.com/gh-release/cli/gh-release-header/v${STEP_CLI_VERSION}/checksums.txt"
+
+    curl -fsSL "${STEP_CLI_URL}" -o "${TEMP_DIR}/step.tar.gz"
+    curl -fsSL "${STEP_CLI_CHECKSUMS_URL}" -o "${TEMP_DIR}/checksums.txt"
+
+    # Verify checksum
+    cd "${TEMP_DIR}"
+    EXPECTED_HASH=$(grep "step_linux_${ARCH}.tar.gz" checksums.txt | awk '{print $1}')
+    if [[ -z "${EXPECTED_HASH}" ]]; then
+        echo "ERROR: Could not find checksum for step_linux_${ARCH}.tar.gz"
+        exit 1
+    fi
+    ACTUAL_HASH=$(sha256sum step.tar.gz | awk '{print $1}')
+    if [[ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]]; then
+        echo "ERROR: Checksum verification failed for step CLI!"
+        echo "Expected: ${EXPECTED_HASH}"
+        echo "Actual:   ${ACTUAL_HASH}"
+        exit 1
+    fi
+    echo "Checksum verified for step CLI"
+
+    tar -xzf step.tar.gz
+    mv "step_linux_${ARCH}/bin/step" "${APP_DIR}/bin/"
+    chmod +x "${APP_DIR}/bin/step"
+    echo "step CLI installed to ${APP_DIR}/bin/"
+
+    rm -rf "${TEMP_DIR}"
+    TEMP_DIR=""
 fi
 
 # Create systemd service template (agent will copy to /etc/systemd/system/)

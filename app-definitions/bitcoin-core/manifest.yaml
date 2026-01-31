@@ -41,7 +41,7 @@ tor:
 
 logging:
   logFile: "${appDir}/logs/bitcoin-core.log"
-  serviceName: bitcoind
+  serviceName: ownprem-bitcoin-core
 
 configSchema:
   - name: network

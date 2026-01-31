@@ -30,17 +30,46 @@ echo "Installing OwnPrem Caddy binaries..."
 mkdir -p "$APP_DIR/bin"
 mkdir -p "$APP_DIR/templates"
 
-# Download Caddy if not present
+# Cleanup function for temporary files
+cleanup_temp() {
+    [[ -n "${TEMP_DIR:-}" && -d "${TEMP_DIR}" ]] && rm -rf "${TEMP_DIR}"
+}
+trap cleanup_temp EXIT
+
+# Download and verify Caddy if not present
 if [[ ! -f "$APP_DIR/bin/caddy" ]]; then
     echo "Downloading Caddy v${CADDY_VERSION}..."
     TEMP_DIR=$(mktemp -d)
-    curl -sSL "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${ARCH}.tar.gz" \
-        -o "$TEMP_DIR/caddy.tar.gz"
-    tar -xzf "$TEMP_DIR/caddy.tar.gz" -C "$TEMP_DIR"
-    mv "$TEMP_DIR/caddy" "$APP_DIR/bin/"
-    rm -rf "$TEMP_DIR"
-    chmod +x "$APP_DIR/bin/caddy"
-    echo "Caddy installed to $APP_DIR/bin/"
+
+    CADDY_URL="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_${ARCH}.tar.gz"
+    CADDY_CHECKSUMS_URL="https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_checksums.txt"
+
+    curl -fsSL "${CADDY_URL}" -o "${TEMP_DIR}/caddy.tar.gz"
+    curl -fsSL "${CADDY_CHECKSUMS_URL}" -o "${TEMP_DIR}/checksums.txt"
+
+    # Verify checksum (Caddy uses SHA512)
+    cd "${TEMP_DIR}"
+    EXPECTED_HASH=$(grep "caddy_${CADDY_VERSION}_linux_${ARCH}.tar.gz" checksums.txt | awk '{print $1}')
+    if [[ -z "${EXPECTED_HASH}" ]]; then
+        echo "ERROR: Could not find checksum for caddy_${CADDY_VERSION}_linux_${ARCH}.tar.gz"
+        exit 1
+    fi
+    ACTUAL_HASH=$(sha512sum caddy.tar.gz | awk '{print $1}')
+    if [[ "${EXPECTED_HASH}" != "${ACTUAL_HASH}" ]]; then
+        echo "ERROR: Checksum verification failed for Caddy!"
+        echo "Expected: ${EXPECTED_HASH}"
+        echo "Actual:   ${ACTUAL_HASH}"
+        exit 1
+    fi
+    echo "Checksum verified for Caddy"
+
+    tar -xzf caddy.tar.gz
+    mv caddy "${APP_DIR}/bin/"
+    chmod +x "${APP_DIR}/bin/caddy"
+    echo "Caddy installed to ${APP_DIR}/bin/"
+
+    rm -rf "${TEMP_DIR}"
+    TEMP_DIR=""
 fi
 
 # Create Caddyfile template (agent will copy to /etc/caddy/)

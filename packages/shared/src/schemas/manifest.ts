@@ -1,10 +1,42 @@
 import { z } from 'zod';
 
+// Valid Linux capabilities that can be assigned to service binaries
+// These are in setcap format: cap_name=+ep (effective and permitted)
+// This is a subset of common capabilities; expand as needed for specific apps
+export const VALID_LINUX_CAPABILITIES = [
+  'cap_net_bind_service=+ep',  // Bind to ports < 1024
+  'cap_net_raw=+ep',           // Use raw sockets
+  'cap_net_admin=+ep',         // Network configuration
+  'cap_sys_ptrace=+ep',        // Process tracing
+  'cap_dac_override=+ep',      // Bypass file permission checks
+  'cap_dac_read_search=+ep',   // Bypass file read permission
+  'cap_chown=+ep',             // Change file ownership
+  'cap_setuid=+ep',            // Set user ID
+  'cap_setgid=+ep',            // Set group ID
+  'cap_fowner=+ep',            // Bypass ownership checks
+  'cap_kill=+ep',              // Send signals to processes
+  'cap_sys_admin=+ep',         // Various admin operations
+  'cap_ipc_lock=+ep',          // Lock memory
+  'cap_sys_resource=+ep',      // Override resource limits
+  'cap_mknod=+ep',             // Create special files
+] as const;
+
+// Pattern for valid service names: must start with ownprem- prefix
+// to ensure they are controlled by the privileged helper whitelist
+const SERVICE_NAME_PATTERN = /^ownprem-[a-z0-9][a-z0-9-]*$/;
+
+// Pattern to detect path traversal attempts
+const containsPathTraversal = (path: string): boolean => {
+  // Check for .. sequences that could escape directories
+  return path.includes('..') || path.includes('\0');
+};
+
 export const AppSourceSchema = z.object({
   type: z.enum(['binary', 'git', 'apt']),
   githubRepo: z.string().optional(),
-  downloadUrl: z.string().optional(),
-  checksumUrl: z.string().optional(),
+  // P1: Validate download URLs to prevent malicious sources
+  downloadUrl: z.string().url('Must be a valid URL').startsWith('https://', 'Must use HTTPS for security').optional(),
+  checksumUrl: z.string().url('Must be a valid URL').startsWith('https://', 'Must use HTTPS for security').optional(),
   gitUrl: z.string().url().optional(),
   tagPrefix: z.string().optional(),
 });
@@ -28,7 +60,17 @@ export const AppDependencySchema = z.object({
 });
 
 export const DataDirectorySchema = z.object({
-  path: z.string().startsWith('/'),
+  // P1: Validate paths to prevent path traversal attacks
+  path: z.string()
+    .startsWith('/', 'Path must be absolute')
+    .refine(
+      (path) => !containsPathTraversal(path),
+      'Path cannot contain parent directory references (..) or null bytes'
+    )
+    .refine(
+      (path) => !/\/\.(?!\.)/.test(path) || path.includes('/.local'),  // Allow .local for XDG paths
+      'Path cannot contain hidden directories (except .local)'
+    ),
   description: z.string().optional(),
 });
 
@@ -64,8 +106,21 @@ export const WebUISchema = z.object({
 });
 
 export const LoggingSchema = z.object({
-  logFile: z.string().optional(),
-  serviceName: z.string().optional(),
+  logFile: z.string()
+    .refine(
+      (path) => !containsPathTraversal(path),
+      'Log file path cannot contain parent directory references (..)'
+    )
+    .optional(),
+  // P0: Validate serviceName to prevent path traversal in systemd service paths
+  // Service names must match ownprem-{appname} pattern to be controlled by privileged helper
+  serviceName: z.string()
+    .regex(
+      SERVICE_NAME_PATTERN,
+      'Service name must match pattern: ownprem-{appname} (lowercase alphanumeric with hyphens)'
+    )
+    .max(64, 'Service name must be 64 characters or less')
+    .optional(),
 });
 
 export const ConfigFieldSchema = z.object({
@@ -108,8 +163,15 @@ export const AppManifestSchema = z.object({
   dataDirectories: z.array(DataDirectorySchema).optional(),
   serviceUser: z.string().optional(),
   serviceGroup: z.string().optional(),
-  // Linux capabilities for the service binary (e.g., 'cap_net_bind_service+ep')
-  capabilities: z.array(z.string()).optional(),
+  // P0: Linux capabilities for the service binary
+  // Only allow whitelisted capabilities to prevent privilege escalation
+  capabilities: z.array(
+    z.enum(VALID_LINUX_CAPABILITIES, {
+      errorMap: () => ({
+        message: `Must be a valid Linux capability: ${VALID_LINUX_CAPABILITIES.join(', ')}`
+      })
+    })
+  ).optional(),
   // Config file templates to render and deploy
   configTemplates: z.array(ConfigTemplateSchema).optional(),
 });

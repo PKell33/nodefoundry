@@ -41,7 +41,7 @@ tor:
 
 logging:
   logFile: "${appDir}/logs/bitcoin-bip110.log"
-  serviceName: bitcoind
+  serviceName: ownprem-bitcoin-bip110
 
 configSchema:
   - name: network
