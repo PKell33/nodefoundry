@@ -206,52 +206,54 @@ function TwoFactorAuth() {
               </button>
             </div>
 
-            <Modal
-              isOpen={showDisableForm}
-              onClose={() => {
-                setShowDisableForm(false);
-                setDisablePassword('');
-                setError(null);
-              }}
-              title="Disable Two-Factor Authentication"
-              size="sm"
-            >
-              <div className="space-y-4">
-                <p className="text-sm text-muted">Enter your password to disable two-factor authentication:</p>
-                {error && (
-                  <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
-                    {error}
+            {showDisableForm && (
+              <Modal
+                isOpen={showDisableForm}
+                onClose={() => {
+                  setShowDisableForm(false);
+                  setDisablePassword('');
+                  setError(null);
+                }}
+                title="Disable Two-Factor Authentication"
+                size="sm"
+              >
+                <div className="space-y-4">
+                  <p className="text-sm text-muted">Enter your password to disable two-factor authentication:</p>
+                  {error && (
+                    <div className="p-3 bg-red-900/50 border border-red-700 rounded-lg text-red-300 text-sm">
+                      {error}
+                    </div>
+                  )}
+                  <input
+                    type="password"
+                    value={disablePassword}
+                    onChange={(e) => setDisablePassword(e.target.value)}
+                    placeholder="Password"
+                    className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
+                  />
+                  <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+                    <button
+                      onClick={() => {
+                        setShowDisableForm(false);
+                        setDisablePassword('');
+                        setError(null);
+                      }}
+                      className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleDisable}
+                      disabled={disabling || !disablePassword}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
+                    >
+                      {disabling && <Loader2 size={16} className="animate-spin" />}
+                      Disable 2FA
+                    </button>
                   </div>
-                )}
-                <input
-                  type="password"
-                  value={disablePassword}
-                  onChange={(e) => setDisablePassword(e.target.value)}
-                  placeholder="Password"
-                  className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
-                />
-                <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
-                  <button
-                    onClick={() => {
-                      setShowDisableForm(false);
-                      setDisablePassword('');
-                      setError(null);
-                    }}
-                    className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDisable}
-                    disabled={disabling || !disablePassword}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 disabled:cursor-not-allowed text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
-                  >
-                    {disabling && <Loader2 size={16} className="animate-spin" />}
-                    Disable 2FA
-                  </button>
                 </div>
-              </div>
-            </Modal>
+              </Modal>
+            )}
           </div>
         ) : (
           // 2FA is not enabled
@@ -278,14 +280,14 @@ function TwoFactorAuth() {
       </div>
 
       {/* 2FA Setup Modal */}
-      <Modal
-        isOpen={!!setupData}
-        onClose={cancelSetup}
-        title={showBackupCodes ? "Save Your Backup Codes" : "Setup Two-Factor Authentication"}
-        size="lg"
-      >
-        {setupData && (
-          showBackupCodes ? (
+      {setupData && (
+        <Modal
+          isOpen={!!setupData}
+          onClose={cancelSetup}
+          title={showBackupCodes ? "Save Your Backup Codes" : "Setup Two-Factor Authentication"}
+          size="lg"
+        >
+          {showBackupCodes ? (
             <div className="space-y-4">
               <p className="text-sm text-muted">
                 Store these codes in a safe place. Each code can only be used once.
@@ -397,9 +399,9 @@ function TwoFactorAuth() {
                 </button>
               </div>
             </div>
-          )
-        )}
-      </Modal>
+          )}
+        </Modal>
+      )}
     </section>
   );
 }
@@ -604,62 +606,66 @@ function SessionManagement() {
       </div>
 
       {/* Confirm End All Sessions Modal */}
-      <Modal
-        isOpen={confirmRevokeAll}
-        onClose={() => setConfirmRevokeAll(false)}
-        title="End All Other Sessions"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-muted">
-            Are you sure you want to end all other sessions? You will remain logged in on this device only.
-          </p>
-          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
-            <button
-              onClick={() => setConfirmRevokeAll(false)}
-              className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleRevokeOthers}
-              disabled={revoking === 'all'}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
-            >
-              {revoking === 'all' && <Loader2 size={16} className="animate-spin" />}
-              End Sessions
-            </button>
+      {confirmRevokeAll && (
+        <Modal
+          isOpen={confirmRevokeAll}
+          onClose={() => setConfirmRevokeAll(false)}
+          title="End All Other Sessions"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-muted">
+              Are you sure you want to end all other sessions? You will remain logged in on this device only.
+            </p>
+            <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+              <button
+                onClick={() => setConfirmRevokeAll(false)}
+                className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRevokeOthers}
+                disabled={revoking === 'all'}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-800 text-white font-medium rounded-lg flex items-center gap-2 transition-colors"
+              >
+                {revoking === 'all' && <Loader2 size={16} className="animate-spin" />}
+                End Sessions
+              </button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
 
       {/* Confirm End Single Session Modal */}
-      <Modal
-        isOpen={!!confirmRevokeSession}
-        onClose={() => setConfirmRevokeSession(null)}
-        title="End Session"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-muted">
-            Are you sure you want to end this session? The user will be logged out on that device.
-          </p>
-          <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
-            <button
-              onClick={() => setConfirmRevokeSession(null)}
-              className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => confirmRevokeSession && handleRevokeSession(confirmRevokeSession)}
-              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
-            >
-              End Session
-            </button>
+      {confirmRevokeSession && (
+        <Modal
+          isOpen={!!confirmRevokeSession}
+          onClose={() => setConfirmRevokeSession(null)}
+          title="End Session"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-muted">
+              Are you sure you want to end this session? The user will be logged out on that device.
+            </p>
+            <div className="flex justify-end gap-3 pt-4 border-t border-[var(--border-color)]">
+              <button
+                onClick={() => setConfirmRevokeSession(null)}
+                className="px-4 py-2 text-muted hover:text-[var(--text-primary)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => confirmRevokeSession && handleRevokeSession(confirmRevokeSession)}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
+              >
+                End Session
+              </button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
     </section>
   );
 }

@@ -187,18 +187,20 @@ export default function Storage() {
       )}
 
       {/* Add Mount Modal */}
-      <Modal
-        isOpen={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        title="Add Storage Mount"
-        size="lg"
-      >
-        <AddMountForm
-          onSubmit={handleCreateMount}
-          isLoading={createMountMutation.isPending}
-          onCancel={() => setAddModalOpen(false)}
-        />
-      </Modal>
+      {addModalOpen && (
+        <Modal
+          isOpen={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          title="Add Storage Mount"
+          size="lg"
+        >
+          <AddMountForm
+            onSubmit={handleCreateMount}
+            isLoading={createMountMutation.isPending}
+            onCancel={() => setAddModalOpen(false)}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

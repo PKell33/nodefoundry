@@ -118,15 +118,16 @@ export default function Servers() {
       )}
 
       {/* Add Server Modal */}
-      <Modal
-        isOpen={addModalOpen}
-        onClose={() => {
-          setAddModalOpen(false);
-          setBootstrapCommand(null);
-        }}
-        title={bootstrapCommand ? 'Connect Your Server' : 'Add Server'}
-        size={bootstrapCommand ? 'lg' : 'md'}
-      >
+      {addModalOpen && (
+        <Modal
+          isOpen={addModalOpen}
+          onClose={() => {
+            setAddModalOpen(false);
+            setBootstrapCommand(null);
+          }}
+          title={bootstrapCommand ? 'Connect Your Server' : 'Add Server'}
+          size={bootstrapCommand ? 'lg' : 'md'}
+        >
         {bootstrapCommand ? (
           <div className="space-y-6">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
@@ -203,19 +204,21 @@ export default function Servers() {
         ) : (
           <AddServerForm onSubmit={handleAddServer} />
         )}
-      </Modal>
+        </Modal>
+      )}
 
       {/* Setup Server Modal (for regenerated token) */}
-      <Modal
-        isOpen={setupModalOpen}
-        onClose={() => {
-          setSetupModalOpen(false);
-          setBootstrapCommand(null);
-          setSetupServerName('');
-        }}
-        title={`Connect ${setupServerName}`}
-        size="lg"
-      >
+      {setupModalOpen && (
+        <Modal
+          isOpen={setupModalOpen}
+          onClose={() => {
+            setSetupModalOpen(false);
+            setBootstrapCommand(null);
+            setSetupServerName('');
+          }}
+          title={`Connect ${setupServerName}`}
+          size="lg"
+        >
         {bootstrapCommand && (
           <div className="space-y-6">
             <div className="flex items-start gap-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
@@ -281,18 +284,20 @@ export default function Servers() {
             </button>
           </div>
         )}
-      </Modal>
+        </Modal>
+      )}
 
       {/* Generic Setup Guide Modal (no token) */}
-      <Modal
-        isOpen={guideModalOpen}
-        onClose={() => {
-          setGuideModalOpen(false);
-          setSetupServerName('');
-        }}
-        title="Agent Setup Guide"
-        size="lg"
-      >
+      {guideModalOpen && (
+        <Modal
+          isOpen={guideModalOpen}
+          onClose={() => {
+            setGuideModalOpen(false);
+            setSetupServerName('');
+          }}
+          title="Agent Setup Guide"
+          size="lg"
+        >
         <div className="space-y-6">
           <p className="text-sm text-muted">
             This guide explains how to connect a server to OwnPrem. To get the actual install command with
@@ -367,7 +372,8 @@ export default function Servers() {
             Close
           </button>
         </div>
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 }

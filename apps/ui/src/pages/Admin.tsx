@@ -194,17 +194,19 @@ function GroupManagement() {
         </button>
       </div>
 
-      <Modal
-        isOpen={showCreateForm}
-        onClose={() => setShowCreateForm(false)}
-        title="Create New Group"
-        size="md"
-      >
-        <CreateGroupForm
-          onSubmit={handleCreateGroup}
-          onCancel={() => setShowCreateForm(false)}
-        />
-      </Modal>
+      {showCreateForm && (
+        <Modal
+          isOpen={showCreateForm}
+          onClose={() => setShowCreateForm(false)}
+          title="Create New Group"
+          size="md"
+        >
+          <CreateGroupForm
+            onSubmit={handleCreateGroup}
+            onCancel={() => setShowCreateForm(false)}
+          />
+        </Modal>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Groups List */}
@@ -313,18 +315,20 @@ function GroupManagement() {
                   </button>
                 </div>
 
-                <Modal
-                  isOpen={showAddMember && nonMembers.length > 0}
-                  onClose={() => setShowAddMember(false)}
-                  title="Add Member"
-                  size="sm"
-                >
-                  <AddMemberForm
-                    users={nonMembers}
-                    onAdd={handleAddMember}
-                    onCancel={() => setShowAddMember(false)}
-                  />
-                </Modal>
+                {showAddMember && nonMembers.length > 0 && (
+                  <Modal
+                    isOpen={showAddMember && nonMembers.length > 0}
+                    onClose={() => setShowAddMember(false)}
+                    title="Add Member"
+                    size="sm"
+                  >
+                    <AddMemberForm
+                      users={nonMembers}
+                      onAdd={handleAddMember}
+                      onCancel={() => setShowAddMember(false)}
+                    />
+                  </Modal>
+                )}
 
                 {selectedGroup.members.length === 0 ? (
                   <div className="text-sm text-muted text-center py-4">No members</div>
@@ -563,17 +567,19 @@ function UserManagement({ currentUserId }: { currentUserId?: string }) {
         </button>
       </div>
 
-      <Modal
-        isOpen={showCreateForm}
-        onClose={() => setShowCreateForm(false)}
-        title="Create New User"
-        size="md"
-      >
-        <CreateUserForm
-          onSuccess={handleUserCreated}
-          onCancel={() => setShowCreateForm(false)}
-        />
-      </Modal>
+      {showCreateForm && (
+        <Modal
+          isOpen={showCreateForm}
+          onClose={() => setShowCreateForm(false)}
+          title="Create New User"
+          size="md"
+        >
+          <CreateUserForm
+            onSuccess={handleUserCreated}
+            onCancel={() => setShowCreateForm(false)}
+          />
+        </Modal>
+      )}
 
       <div className="card overflow-hidden">
         {loading ? (

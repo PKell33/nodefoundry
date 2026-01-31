@@ -261,15 +261,17 @@ export default function HAConfiguration() {
       </div>
 
       {/* Configuration Modal */}
-      <ConfigureHAModal
-        isOpen={showConfigModal}
-        onClose={() => setShowConfigModal(false)}
-        currentConfig={isConfigured ? config as HAConfig : null}
-        onSave={() => {
-          setShowConfigModal(false);
-          loadData();
-        }}
-      />
+      {showConfigModal && (
+        <ConfigureHAModal
+          isOpen={showConfigModal}
+          onClose={() => setShowConfigModal(false)}
+          currentConfig={isConfigured ? config as HAConfig : null}
+          onSave={() => {
+            setShowConfigModal(false);
+            loadData();
+          }}
+        />
+      )}
     </section>
   );
 }

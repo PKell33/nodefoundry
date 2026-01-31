@@ -557,70 +557,72 @@ export default function ServerCard({
       )}
 
       {/* Add App Selector Modal */}
-      <Modal
-        isOpen={showAddAppModal}
-        onClose={() => setShowAddAppModal(false)}
-        title="Add App"
-        size="lg"
-      >
-        <div className="space-y-4">
-          <p className="text-[var(--text-secondary)] text-sm">
-            Select an app to install on <span className="font-medium text-[var(--text-primary)]">{server.name}</span>
-          </p>
+      {showAddAppModal && (
+        <Modal
+          isOpen={showAddAppModal}
+          onClose={() => setShowAddAppModal(false)}
+          title="Add App"
+          size="lg"
+        >
+          <div className="space-y-4">
+            <p className="text-[var(--text-secondary)] text-sm">
+              Select an app to install on <span className="font-medium text-[var(--text-primary)]">{server.name}</span>
+            </p>
 
-          {Object.keys(appsByCategory).length === 0 ? (
-            <div className="text-center py-8 text-muted">
-              All available apps are already installed on this server.
-            </div>
-          ) : (
-            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
-              {categoryOrder
-                .filter(cat => appsByCategory[cat]?.length > 0)
-                .map((category) => (
-                <div key={category}>
-                  <h3 className="text-sm font-medium text-muted mb-2 capitalize">{category}</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {appsByCategory[category].map((app) => (
-                      <button
-                        key={app.name}
-                        onClick={() => {
-                          setShowAddAppModal(false);
-                          setInstallAppName(app.name);
-                        }}
-                        className={`flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
-                          app.system
-                            ? 'border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10'
-                            : 'border-[var(--border-color)] hover:border-accent hover:bg-accent/5'
-                        }`}
-                      >
-                        <AppIcon appName={app.name} size={32} />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium text-sm truncate flex items-center gap-2">
-                            {app.displayName}
-                            {app.system && (
-                              <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">System</span>
-                            )}
+            {Object.keys(appsByCategory).length === 0 ? (
+              <div className="text-center py-8 text-muted">
+                All available apps are already installed on this server.
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+                {categoryOrder
+                  .filter(cat => appsByCategory[cat]?.length > 0)
+                  .map((category) => (
+                  <div key={category}>
+                    <h3 className="text-sm font-medium text-muted mb-2 capitalize">{category}</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {appsByCategory[category].map((app) => (
+                        <button
+                          key={app.name}
+                          onClick={() => {
+                            setShowAddAppModal(false);
+                            setInstallAppName(app.name);
+                          }}
+                          className={`flex items-center gap-3 p-3 rounded-lg border transition-colors text-left ${
+                            app.system
+                              ? 'border-purple-500/30 hover:border-purple-500 hover:bg-purple-500/10'
+                              : 'border-[var(--border-color)] hover:border-accent hover:bg-accent/5'
+                          }`}
+                        >
+                          <AppIcon appName={app.name} size={32} />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium text-sm truncate flex items-center gap-2">
+                              {app.displayName}
+                              {app.system && (
+                                <span className="text-[10px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded">System</span>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted truncate">{app.description}</div>
                           </div>
-                          <div className="text-xs text-muted truncate">{app.description}</div>
-                        </div>
-                      </button>
-                    ))}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
 
-          <div className="pt-4 border-t border-[var(--border-color)]">
-            <button
-              onClick={() => setShowAddAppModal(false)}
-              className="w-full px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
-            >
-              Cancel
-            </button>
+            <div className="pt-4 border-t border-[var(--border-color)]">
+              <button
+                onClick={() => setShowAddAppModal(false)}
+                className="w-full px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
 
       {/* Install Modal */}
       {installAppName && (

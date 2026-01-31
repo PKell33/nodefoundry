@@ -12,6 +12,25 @@ interface ModalProps {
 /**
  * Accessible modal component using native <dialog> element.
  * Provides automatic focus trapping, Escape key handling, and proper ARIA attributes.
+ *
+ * IMPORTANT: Always conditionally render this component: {isOpen && <Modal ...>}
+ * The native <dialog> element combined with React StrictMode can cause
+ * race conditions if the modal is always mounted in the DOM. When the Modal
+ * is always rendered, the useEffect that calls showModal() may fire with
+ * stale or intermediate state values during component mount/unmount cycles.
+ *
+ * @example
+ * // CORRECT - Modal only mounts when needed
+ * {showModal && (
+ *   <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Example">
+ *     Content here
+ *   </Modal>
+ * )}
+ *
+ * // INCORRECT - Modal always in DOM, may cause race conditions
+ * <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Example">
+ *   Content here
+ * </Modal>
  */
 export default function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);

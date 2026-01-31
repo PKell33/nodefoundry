@@ -211,93 +211,95 @@ export default function MountCard({
       </div>
 
       {/* Assign to Server Modal */}
-      <Modal
-        isOpen={showAssignModal}
-        onClose={() => {
-          setShowAssignModal(false);
-          setAssignServerId('');
-          setAssignMountPoint('/mnt/');
-          setAssignOptions('');
-          setAssignPurpose('');
-        }}
-        title="Assign Mount to Server"
-        size="md"
-      >
-        <form onSubmit={handleAssignSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">Server</label>
-            <select
-              value={assignServerId}
-              onChange={(e) => setAssignServerId(e.target.value)}
-              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
-              required
-            >
-              <option value="">Select a server...</option>
-              {availableServers.map((server) => (
-                <option key={server.id} value={server.id}>
-                  {server.name} {server.agentStatus !== 'online' ? '(offline)' : ''}
-                </option>
-              ))}
-            </select>
-          </div>
+      {showAssignModal && (
+        <Modal
+          isOpen={showAssignModal}
+          onClose={() => {
+            setShowAssignModal(false);
+            setAssignServerId('');
+            setAssignMountPoint('/mnt/');
+            setAssignOptions('');
+            setAssignPurpose('');
+          }}
+          title="Assign Mount to Server"
+          size="md"
+        >
+          <form onSubmit={handleAssignSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium mb-2">Server</label>
+              <select
+                value={assignServerId}
+                onChange={(e) => setAssignServerId(e.target.value)}
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
+                required
+              >
+                <option value="">Select a server...</option>
+                {availableServers.map((server) => (
+                  <option key={server.id} value={server.id}>
+                    {server.name} {server.agentStatus !== 'online' ? '(offline)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Mount Point</label>
-            <input
-              type="text"
-              value={assignMountPoint}
-              onChange={(e) => setAssignMountPoint(e.target.value)}
-              placeholder="/mnt/app-data"
-              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
-              required
-              pattern="^/[a-zA-Z0-9/_-]+$"
-              title="Must be an absolute path with alphanumeric characters, underscores, and hyphens"
-            />
-            <p className="text-xs text-muted mt-1">Absolute path where the storage will be mounted</p>
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Mount Point</label>
+              <input
+                type="text"
+                value={assignMountPoint}
+                onChange={(e) => setAssignMountPoint(e.target.value)}
+                placeholder="/mnt/app-data"
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
+                required
+                pattern="^/[a-zA-Z0-9/_-]+$"
+                title="Must be an absolute path with alphanumeric characters, underscores, and hyphens"
+              />
+              <p className="text-xs text-muted mt-1">Absolute path where the storage will be mounted</p>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Mount Options (optional)</label>
-            <input
-              type="text"
-              value={assignOptions}
-              onChange={(e) => setAssignOptions(e.target.value)}
-              placeholder="vers=4,rw,noatime"
-              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
-            />
-            <p className="text-xs text-muted mt-1">Override default mount options for this server</p>
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Mount Options (optional)</label>
+              <input
+                type="text"
+                value={assignOptions}
+                onChange={(e) => setAssignOptions(e.target.value)}
+                placeholder="vers=4,rw,noatime"
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
+              />
+              <p className="text-xs text-muted mt-1">Override default mount options for this server</p>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-2">Purpose (optional)</label>
-            <input
-              type="text"
-              value={assignPurpose}
-              onChange={(e) => setAssignPurpose(e.target.value)}
-              placeholder="app-data"
-              className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
-            />
-            <p className="text-xs text-muted mt-1">For future app linking (e.g., postgres-data, redis-data)</p>
-          </div>
+            <div>
+              <label className="block text-sm font-medium mb-2">Purpose (optional)</label>
+              <input
+                type="text"
+                value={assignPurpose}
+                onChange={(e) => setAssignPurpose(e.target.value)}
+                placeholder="app-data"
+                className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded focus:outline-none focus:border-accent"
+              />
+              <p className="text-xs text-muted mt-1">For future app linking (e.g., postgres-data, redis-data)</p>
+            </div>
 
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => setShowAssignModal(false)}
-              className="flex-1 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={!assignServerId || !assignMountPoint}
-              className="flex-1 px-4 py-2 bg-accent hover:bg-accent/90 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-slate-900 font-medium rounded transition-colors"
-            >
-              Assign
-            </button>
-          </div>
-        </form>
-      </Modal>
+            <div className="flex gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowAssignModal(false)}
+                className="flex-1 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!assignServerId || !assignMountPoint}
+                className="flex-1 px-4 py-2 bg-accent hover:bg-accent/90 disabled:bg-gray-300 dark:disabled:bg-gray-700 disabled:text-gray-500 text-slate-900 font-medium rounded transition-colors"
+              >
+                Assign
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -424,37 +426,39 @@ function ServerMountItem({
       )}
 
       {/* Confirm Modal */}
-      <Modal
-        isOpen={!!confirmAction}
-        onClose={() => setConfirmAction(null)}
-        title={confirmAction === 'unmount' ? 'Unmount Storage?' : 'Remove Assignment?'}
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-[var(--text-secondary)]">
-            {confirmAction === 'unmount'
-              ? `This will unmount the storage from ${serverMount.serverName}. Any apps using this storage should be stopped first.`
-              : `This will remove the mount assignment from ${serverMount.serverName}. The mount must be unmounted first.`
-            }
-          </p>
-          <div className="flex gap-3">
-            <button
-              onClick={() => setConfirmAction(null)}
-              className="flex-1 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleConfirmAction}
-              className={`flex-1 px-4 py-2 text-white rounded transition-colors ${
-                confirmAction === 'unmount' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'
-              }`}
-            >
-              {confirmAction === 'unmount' ? 'Unmount' : 'Remove'}
-            </button>
+      {confirmAction && (
+        <Modal
+          isOpen={!!confirmAction}
+          onClose={() => setConfirmAction(null)}
+          title={confirmAction === 'unmount' ? 'Unmount Storage?' : 'Remove Assignment?'}
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-[var(--text-secondary)]">
+              {confirmAction === 'unmount'
+                ? `This will unmount the storage from ${serverMount.serverName}. Any apps using this storage should be stopped first.`
+                : `This will remove the mount assignment from ${serverMount.serverName}. The mount must be unmounted first.`
+              }
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="flex-1 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmAction}
+                className={`flex-1 px-4 py-2 text-white rounded transition-colors ${
+                  confirmAction === 'unmount' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
+              >
+                {confirmAction === 'unmount' ? 'Unmount' : 'Remove'}
+              </button>
+            </div>
           </div>
-        </div>
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 }
