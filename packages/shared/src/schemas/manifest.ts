@@ -79,7 +79,7 @@ export const AppManifestSchema = z.object({
   displayName: z.string(),
   description: z.string(),
   version: z.string(),
-  category: z.enum(['database', 'web', 'networking', 'monitoring', 'utility', 'system']),
+  category: z.enum(['database', 'web', 'networking', 'monitoring', 'utility', 'system', 'bitcoin', 'indexer', 'explorer']),
   // System app flags
   system: z.boolean().optional(),
   mandatory: z.boolean().optional(),

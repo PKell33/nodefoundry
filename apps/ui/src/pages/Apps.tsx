@@ -107,6 +107,9 @@ export default function Apps() {
 
   const categories = [
     { id: 'system', label: 'System' },
+    { id: 'bitcoin', label: 'Bitcoin' },
+    { id: 'indexer', label: 'Indexers' },
+    { id: 'explorer', label: 'Explorers' },
     { id: 'database', label: 'Database' },
     { id: 'web', label: 'Web' },
     { id: 'networking', label: 'Networking' },

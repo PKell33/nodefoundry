@@ -1,0 +1,87 @@
+name: bitcoin-bip110
+displayName: Bitcoin Knots + BIP-110
+description: Bitcoin Knots with BIP-110 soft fork for temporary data restrictions
+version: 29.2.knots20251110
+category: bitcoin
+
+source:
+  type: binary
+  githubRepo: dathonohm/bitcoin
+  downloadUrl: "https://github.com/dathonohm/bitcoin/releases/download/v${version}%2Bbip110-v0.1/bitcoin-${version}+bip110-v0.1-${arch}.tar.gz"
+  checksumUrl: "https://github.com/dathonohm/bitcoin/releases/download/v${version}%2Bbip110-v0.1/SHA256SUMS"
+
+conflicts:
+  - bitcoin-core
+  - bitcoin-knots
+
+provides:
+  - name: bitcoin-rpc
+    port: 8332
+    protocol: http
+    credentials:
+      type: rpc
+      fields: [rpcuser, rpcpassword]
+  - name: bitcoin-p2p
+    port: 8333
+    protocol: tcp
+  - name: bitcoin-zmq-block
+    port: 28332
+    protocol: zmq
+  - name: bitcoin-zmq-tx
+    port: 28333
+    protocol: zmq
+
+tor:
+  - name: bitcoin-p2p
+    virtualPort: 8333
+    targetPort: 8333
+  - name: bitcoin-rpc
+    virtualPort: 8332
+    targetPort: 8332
+
+logging:
+  logFile: "${appDir}/logs/bitcoin-bip110.log"
+  serviceName: bitcoind
+
+configSchema:
+  - name: network
+    type: select
+    label: Network
+    options: [mainnet, testnet, signet, regtest]
+    default: mainnet
+  - name: txindex
+    type: boolean
+    label: Transaction Index
+    description: Required for Electrs
+    default: true
+  - name: prune
+    type: number
+    label: Prune (MB)
+    description: "0 = full node"
+    default: 0
+  - name: dbcache
+    type: number
+    label: DB Cache (MB)
+    default: 450
+  - name: maxconnections
+    type: number
+    label: Max Connections
+    default: 125
+  - name: blocksonly
+    type: boolean
+    label: Blocks Only Mode
+    default: false
+  - name: rpcuser
+    type: string
+    label: RPC Username
+    generated: true
+    secret: true
+  - name: rpcpassword
+    type: password
+    label: RPC Password
+    generated: true
+    secret: true
+
+resources:
+  minDisk: 700GB
+  minMemory: 2GB
