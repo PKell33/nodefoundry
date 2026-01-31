@@ -17,7 +17,8 @@
     "build:agent": "npm run build -w apps/agent",
     "typecheck": "tsc -b",
     "test": "npm run test -ws --if-present",
-    "clean": "rm -rf node_modules packages/*/node_modules apps/*/node_modules packages/*/dist apps/*/dist"
+    "clean": "rm -rf node_modules packages/*/node_modules apps/*/node_modules packages/*/dist apps/*/dist",
+    "prepare": "husky"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

@@ -1,0 +1,4 @@
+#!/bin/sh
+
+# Run lint-staged for UI package
+cd apps/ui && npx lint-staged

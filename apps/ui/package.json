@@ -13,6 +13,11 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage"
   },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "vitest related --run --passWithNoTests"
+    ]
+  },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@ownprem/shared": "*",
@@ -38,7 +43,9 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/coverage-v8": "^4.0.18",
     "autoprefixer": "^10.4.17",
+    "husky": "^9.1.7",
     "jsdom": "^27.4.0",
+    "lint-staged": "^16.2.7",
     "postcss": "^8.4.33",
     "sharp": "^0.34.5",
     "tailwindcss": "^3.4.1",
