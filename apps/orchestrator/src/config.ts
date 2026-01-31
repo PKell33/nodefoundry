@@ -136,8 +136,8 @@ const productionIndicators = detectProductionIndicators();
 const DEFAULT_PORT = 3001;
 const DEFAULT_BCRYPT_ROUNDS = 12;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
-const RATE_LIMIT_MAX_REQUESTS = 100;
-const AUTH_RATE_LIMIT_MAX = 10; // Stricter limit for auth endpoints
+const RATE_LIMIT_MAX_REQUESTS = 1000; // Generous limit for single-user admin UI
+const AUTH_RATE_LIMIT_MAX = 20; // Stricter limit for auth endpoints
 
 export interface JwtSecretResult {
   secret: string;

@@ -1,4 +1,5 @@
 import { useAuthStore } from '../stores/useAuthStore';
+import { showError } from '../lib/toast';
 import type {
   ServerMetrics,
   NetworkInfo,
@@ -125,6 +126,11 @@ async function handleResponse<T>(response: Response, retryFn?: () => Promise<Res
       }
       // Refresh failed, logout
       useAuthStore.getState().logout();
+    }
+
+    // Handle 429 - rate limit exceeded
+    if (response.status === 429) {
+      showError('Too many requests. Please wait a moment and try again.', 'Rate Limit Exceeded');
     }
 
     const errorBody = await response.json().catch(() => ({ error: { message: 'Request failed' } }));
