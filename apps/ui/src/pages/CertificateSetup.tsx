@@ -12,7 +12,9 @@ interface CertInfo {
 type Platform = 'windows' | 'macos' | 'linux';
 
 export function CertificateSetup() {
-  const { theme, toggleTheme } = useThemeStore();
+  // Use selectors to avoid subscribing to entire store state
+  const theme = useThemeStore((state) => state.theme);
+  const toggleTheme = useThemeStore((state) => state.toggleTheme);
   const [certInfo, setCertInfo] = useState<CertInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);

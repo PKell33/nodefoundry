@@ -14,7 +14,8 @@ export default function Servers() {
   const { data: servers, isLoading, error, refetch } = useServers();
   const { data: deployments } = useDeployments();
   const { data: apps } = useApps();
-  const { user } = useAuthStore();
+  // Use selector to avoid subscribing to entire store state
+  const user = useAuthStore((state) => state.user);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);

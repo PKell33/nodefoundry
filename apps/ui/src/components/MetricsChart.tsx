@@ -23,7 +23,7 @@ const EMPTY_METRICS_HISTORY: { timestamp: number; cpu: number; memoryPercent: nu
 
 const MetricsChart = memo(function MetricsChart({ serverId, height = 200, showLegend = true }: MetricsChartProps) {
   const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
-  const { theme } = useThemeStore();
+  const theme = useThemeStore((state) => state.theme);
 
   const data = useMemo(() => formatMetricsForChart(history), [history]);
 
@@ -136,7 +136,7 @@ export const SingleMetricChart = memo(function SingleMetricChart({
   height = 100,
 }: SingleMetricChartProps) {
   const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
-  const { theme } = useThemeStore();
+  const theme = useThemeStore((state) => state.theme);
 
   const data = useMemo(() => formatMetricsForChart(history), [history]);
 
@@ -220,7 +220,7 @@ export const Sparkline = memo(function Sparkline({
   total,
 }: SparklineProps) {
   const history = useMetricsStore((state) => state.history[serverId] ?? EMPTY_METRICS_HISTORY);
-  const { theme } = useThemeStore();
+  const theme = useThemeStore((state) => state.theme);
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [mousePos, setMousePos] = useState<{ x: number; y: number } | null>(null);
 
@@ -390,7 +390,7 @@ export const AggregatedMetricsChart = memo(function AggregatedMetricsChart({
   height = 150,
 }: AggregatedMetricsChartProps) {
   const history = useMetricsStore((state) => state.history);
-  const { theme } = useThemeStore();
+  const theme = useThemeStore((state) => state.theme);
 
   const data = useMemo(() => {
     // Get the most recent timestamps across all servers

@@ -9,8 +9,10 @@ import type { Server, Deployment } from '../api/client';
 export function useWebSocket() {
   const socketRef = useRef<Socket | null>(null);
   const queryClient = useQueryClient();
-  const { setConnected } = useStore();
-  const { addMetrics } = useMetricsStore();
+  // Use selectors to avoid subscribing to entire store state
+  // This prevents re-renders when history updates
+  const setConnected = useStore((state) => state.setConnected);
+  const addMetrics = useMetricsStore((state) => state.addMetrics);
 
   const connect = useCallback(() => {
     if (socketRef.current?.connected) {

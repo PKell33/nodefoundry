@@ -8,8 +8,10 @@ import { api } from '../api/client';
 
 export default function Layout() {
   const connected = useStore((state) => state.connected);
-  const { user } = useAuthStore();
-  const { theme, toggleTheme } = useThemeStore();
+  // Use selectors to avoid subscribing to entire store state
+  const user = useAuthStore((state) => state.user);
+  const theme = useThemeStore((state) => state.theme);
+  const toggleTheme = useThemeStore((state) => state.toggleTheme);
   const navigate = useNavigate();
   const location = useLocation();
   const [showUserMenu, setShowUserMenu] = useState(false);
