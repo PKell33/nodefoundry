@@ -59,7 +59,7 @@ rm -rf "$BUILD_DIR"
 
 # Create electrs user if running as root
 if [ "$(id -u)" = "0" ]; then
-  id -u electrs &>/dev/null || useradd -r -s /bin/false electrs
+  id -u electrs &>/dev/null || useradd -r -s /usr/sbin/nologin electrs
   chown -R electrs:electrs "$DATA_DIR"
   chown -R electrs:electrs "$APP_DIR"
 fi

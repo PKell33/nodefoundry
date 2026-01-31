@@ -177,7 +177,7 @@ if [[ "$SKIP_DEPS" != "true" ]]; then
     log_step "Installing system dependencies..."
 
     apt-get update
-    apt-get install -y curl git build-essential openssl rsync
+    apt-get install -y curl git build-essential openssl rsync libcap2-bin
 
     # Install Node.js if not present or wrong version
     NEED_NODE="false"

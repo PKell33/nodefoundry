@@ -73,7 +73,7 @@ rm -rf "$BUILD_DIR"
 
 # Create mempool user
 if [ "$(id -u)" = "0" ]; then
-  id -u mempool &>/dev/null || useradd -r -s /bin/false mempool
+  id -u mempool &>/dev/null || useradd -r -s /usr/sbin/nologin mempool
   chown -R mempool:mempool "$DATA_DIR"
   chown -R mempool:mempool "$APP_DIR"
 fi

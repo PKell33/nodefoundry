@@ -48,7 +48,7 @@ cp "bitcoin-${VERSION}/bin/"* "$APP_DIR/"
 rm -rf "bitcoin-${VERSION}" "$TARBALL" SHA256SUMS
 
 if [ "$(id -u)" = "0" ]; then
-  id -u bitcoin &>/dev/null || useradd -r -s /bin/false bitcoin
+  id -u bitcoin &>/dev/null || useradd -r -s /usr/sbin/nologin bitcoin
   chown -R bitcoin:bitcoin "$DATA_DIR"
   chown -R bitcoin:bitcoin "$APP_DIR"
 
