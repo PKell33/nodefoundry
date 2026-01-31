@@ -158,12 +158,16 @@ export async function generateCaddyJsonConfig(
     }],
   });
 
-  // WebSocket routes
+  // WebSocket routes - force HTTP/1.1 for WebSocket upgrade compatibility
   subroutes.push({
     match: [{ path: ['/socket.io/*'] }],
     handle: [{
       handler: 'reverse_proxy',
       upstreams: [{ dial: `localhost:${apiPort}` }],
+      transport: {
+        protocol: 'http',
+        versions: ['1.1'],
+      },
     }],
   });
 
@@ -248,6 +252,9 @@ export async function generateCaddyJsonConfig(
         servers: {
           srv0: {
             listen: [':443'],
+            // Use HTTP/1.1 only to ensure WebSocket upgrade works
+            // HTTP/2 WebSocket requires Extended CONNECT which Socket.io doesn't support
+            protocols: ['h1'],
             routes: [{
               match: [{ host: [domain] }],
               handle: [{
