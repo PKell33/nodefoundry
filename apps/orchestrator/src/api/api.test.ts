@@ -88,7 +88,6 @@ vi.mock('../lib/logger.js', () => ({
   apiLogger: mockLogger,
   wsLogger: mockLogger,
   dbLogger: mockLogger,
-  deployerLogger: mockLogger,
   authLogger: mockLogger,
   createRequestLogger: () => (_req: any, _res: any, next: any) => next(),
 }));

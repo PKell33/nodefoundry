@@ -1,4 +1,4 @@
-import { User, Users, ScrollText } from 'lucide-react';
+import { User } from 'lucide-react';
 import type { TabId } from './types';
 
 interface AdminTabsProps {
@@ -8,8 +8,6 @@ interface AdminTabsProps {
 
 const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'users', label: 'Users', icon: <User size={18} /> },
-  { id: 'groups', label: 'Groups', icon: <Users size={18} /> },
-  { id: 'audit', label: 'Audit Log', icon: <ScrollText size={18} /> },
 ];
 
 export default function AdminTabs({ activeTab, onTabChange }: AdminTabsProps) {

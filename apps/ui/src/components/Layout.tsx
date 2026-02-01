@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Server, Package, Settings, Wifi, WifiOff, User, Menu, X, Sun, Moon, HardDrive, Shield, LogOut, UserCircle, ChevronUp } from 'lucide-react';
+import { LayoutDashboard, Server, Package, Wifi, WifiOff, User, Menu, X, Sun, Moon, HardDrive, Shield, LogOut, UserCircle, ChevronUp } from 'lucide-react';
 import { useStore } from '../stores/useStore';
 import { useAuthStore } from '../stores/useAuthStore';
 import { useThemeStore } from '../stores/useThemeStore';
@@ -78,7 +78,6 @@ export default function Layout() {
           <NavItem to="/servers" icon={<Server size={20} />} label="Servers" />
           <NavItem to="/apps" icon={<Package size={20} />} label="Apps" />
           <NavItem to="/storage" icon={<HardDrive size={20} />} label="Storage" />
-          <NavItem to="/settings" icon={<Settings size={20} />} label="Settings" />
           {user?.isSystemAdmin && (
             <NavItem to="/admin" icon={<Shield size={20} />} label="Admin" />
           )}

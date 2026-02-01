@@ -5,12 +5,9 @@ import { createApi, initializeApi } from './api/index.js';
 import { createWebSocket, shutdownWebSocket } from './websocket/index.js';
 import { secretsManager } from './services/secretsManager.js';
 import { proxyManager } from './services/proxyManager.js';
-import { systemAppsService } from './services/systemAppsService.js';
-import { deploymentHealthService } from './services/deploymentHealthService.js';
 import { startSessionCleanup, stopSessionCleanup } from './jobs/sessionCleanup.js';
 import { startMountStatusChecker, stopMountStatusChecker } from './jobs/mountStatusChecker.js';
 import { startCertRenewal, stopCertRenewal } from './jobs/certRenewal.js';
-import { runStartupRecovery } from './jobs/stateRecovery.js';
 import logger from './lib/logger.js';
 import { isServerShuttingDown, setServerShuttingDown } from './lib/shutdownState.js';
 
@@ -42,9 +39,6 @@ async function main(): Promise<void> {
   // Validate secrets configuration (will throw in production without SECRETS_KEY)
   secretsManager.validateConfiguration();
 
-  // Run state recovery for deployments stuck in transient states
-  await runStartupRecovery();
-
   // Initialize API services (creates default user in dev mode)
   await initializeApi();
 
@@ -61,12 +55,6 @@ async function main(): Promise<void> {
   startSessionCleanup();
   startMountStatusChecker();
   startCertRenewal();
-
-  // Start deployment health monitor (detects and recovers stuck deployments)
-  deploymentHealthService.start();
-
-  // Start system apps monitor (installs mandatory apps when core agent connects)
-  systemAppsService.start();
 
   // Start listening on all interfaces for remote access
   httpServer.listen(config.port, '0.0.0.0', async () => {
@@ -103,8 +91,6 @@ async function main(): Promise<void> {
       stopSessionCleanup();
       stopMountStatusChecker();
       stopCertRenewal();
-      deploymentHealthService.stop();
-      systemAppsService.stop();
       logger.info('Background jobs stopped');
 
       // 2. Shutdown WebSocket (notifies agents, waits for pending commands)

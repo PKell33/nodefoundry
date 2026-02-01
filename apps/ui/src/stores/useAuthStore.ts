@@ -5,7 +5,6 @@ interface UserGroupMembership {
   groupId: string;
   groupName: string;
   role: 'admin' | 'operator' | 'viewer';
-  totpRequired: boolean;
 }
 
 interface User {
@@ -13,8 +12,6 @@ interface User {
   username: string;
   isSystemAdmin: boolean;
   groups: UserGroupMembership[];
-  totpEnabled?: boolean;
-  totpRequired?: boolean;
 }
 
 interface AuthState {
@@ -23,14 +20,12 @@ interface AuthState {
   isAuthenticated: boolean;
   isLoading: boolean;
   error: string | null;
-  totpSetupRequired: boolean;
 
   // Actions
   setAuthenticated: (user: User) => void;
   setUser: (user: User) => void;
   setError: (error: string | null) => void;
   setLoading: (loading: boolean) => void;
-  setTotpSetupRequired: (required: boolean) => void;
   logout: () => void;
   clearError: () => void;
 }
@@ -42,7 +37,6 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: false,
       isLoading: false,
       error: null,
-      totpSetupRequired: false,
 
       setAuthenticated: (user) =>
         set({
@@ -57,14 +51,11 @@ export const useAuthStore = create<AuthState>()(
 
       setLoading: (isLoading) => set({ isLoading }),
 
-      setTotpSetupRequired: (required) => set({ totpSetupRequired: required }),
-
       logout: () =>
         set({
           user: null,
           isAuthenticated: false,
           error: null,
-          totpSetupRequired: false,
         }),
 
       clearError: () => set({ error: null }),
@@ -75,7 +66,6 @@ export const useAuthStore = create<AuthState>()(
       partialize: (state) => ({
         user: state.user,
         isAuthenticated: state.isAuthenticated,
-        totpSetupRequired: state.totpSetupRequired,
       }),
     }
   )

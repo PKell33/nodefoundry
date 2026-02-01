@@ -6,15 +6,14 @@ import { api } from '../../../api/client';
 import { useAuthStore } from '../../../stores/useAuthStore';
 import AuthInput from '../components/AuthInput';
 import AuthButton from '../components/AuthButton';
-import type { StoredCredentials } from '../types';
 
 interface SetupFormProps {
-  onTotpRequired: (credentials: StoredCredentials) => void;
-  onSuccess: (redirectTo: string, totpSetupRequired?: boolean) => void;
+  onBack: () => void;
+  onSuccess: (redirectTo: string) => void;
 }
 
-export default function SetupForm({ onTotpRequired, onSuccess }: SetupFormProps) {
-  const { setAuthenticated, setError, setLoading, isLoading, clearError, setTotpSetupRequired } = useAuthStore();
+export default function SetupForm({ onBack, onSuccess }: SetupFormProps) {
+  const { setAuthenticated, setError, setLoading, isLoading, clearError } = useAuthStore();
 
   const form = useForm<SetupFormData>({
     resolver: zodResolver(setupFormSchema),
@@ -29,16 +28,9 @@ export default function SetupForm({ onTotpRequired, onSuccess }: SetupFormProps)
     try {
       await api.setup(data.username, data.password);
       const response = await api.login(data.username, data.password);
-      if ('totpRequired' in response && response.totpRequired) {
-        onTotpRequired({ username: data.username, password: data.password });
-      } else if (response.user) {
+      if (response.user) {
         setAuthenticated(response.user);
-        if ('totpSetupRequired' in response && response.totpSetupRequired) {
-          setTotpSetupRequired(true);
-          onSuccess('/setup-2fa', true);
-        } else {
-          onSuccess('/', false);
-        }
+        onSuccess('/');
       }
     } catch (err) {
       if (err instanceof Error) {
@@ -100,6 +92,15 @@ export default function SetupForm({ onTotpRequired, onSuccess }: SetupFormProps)
         <p className="text-center text-sm" style={{ color: '#565f89' }}>
           This will create the initial admin account for OwnPrem.
         </p>
+
+        <button
+          type="button"
+          onClick={onBack}
+          className="w-full py-2 text-sm hover:underline"
+          style={{ color: '#565f89', background: 'transparent', border: 'none', cursor: 'pointer' }}
+        >
+          Back to login
+        </button>
       </div>
     </form>
   );

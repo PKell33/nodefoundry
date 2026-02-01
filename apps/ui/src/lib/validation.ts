@@ -40,17 +40,6 @@ export const loginPasswordSchema = z
   .min(1, 'Password is required');
 
 /**
- * TOTP code validation:
- * - 6 digits for TOTP codes
- * - 8-10 alphanumeric characters for backup codes
- */
-export const totpCodeSchema = z
-  .string()
-  .min(6, 'Code must be at least 6 characters')
-  .max(10, 'Code must not exceed 10 characters')
-  .regex(/^[a-zA-Z0-9]+$/, 'Code must be alphanumeric');
-
-/**
  * Login form schema (less strict validation - server validates)
  */
 export const loginFormSchema = z.object({
@@ -68,13 +57,6 @@ export const setupFormSchema = z.object({
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Passwords do not match',
   path: ['confirmPassword'],
-});
-
-/**
- * TOTP verification form schema
- */
-export const totpFormSchema = z.object({
-  code: totpCodeSchema,
 });
 
 /**
@@ -115,4 +97,3 @@ export const portSchema = z
  */
 export type LoginFormData = z.infer<typeof loginFormSchema>;
 export type SetupFormData = z.infer<typeof setupFormSchema>;
-export type TotpFormData = z.infer<typeof totpFormSchema>;

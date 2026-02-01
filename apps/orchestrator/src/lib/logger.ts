@@ -31,7 +31,6 @@ export const logger = pino({
 export const apiLogger = logger.child({ component: 'api' });
 export const wsLogger = logger.child({ component: 'websocket' });
 export const dbLogger = logger.child({ component: 'database' });
-export const deployerLogger = logger.child({ component: 'deployer' });
 export const authLogger = logger.child({ component: 'auth' });
 export const secretsLogger = logger.child({ component: 'secrets' });
 

@@ -26,12 +26,10 @@ export function useWebSocket() {
     });
 
     socket.on('connect', () => {
-      console.log('WebSocket connected');
       setConnected(true);
     });
 
     socket.on('disconnect', () => {
-      console.log('WebSocket disconnected');
       setConnected(false);
     });
 
@@ -128,8 +126,6 @@ export function useWebSocket() {
     });
 
     socket.on('command:result', (data: CommandResultEvent) => {
-      console.log(`Command ${data.commandId}: ${data.status}`, data);
-
       // Show toast for command completion
       if (data.action) {
         showCommandResult(data.status, data.action, data.message);

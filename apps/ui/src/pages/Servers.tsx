@@ -1,35 +1,40 @@
 import { useState } from 'react';
-import { Plus, Copy, Check, Terminal, AlertTriangle } from 'lucide-react';
-import { useServers, useDeployments, useApps, useStartDeployment, useStopDeployment, useRestartDeployment, useUninstallDeployment } from '../hooks/useApi';
+import { Plus, Copy, Check, Terminal, AlertTriangle, Server, MoreVertical, Trash2, RefreshCw, BookOpen } from 'lucide-react';
+import { useServers } from '../hooks/useApi';
 import { useAuthStore } from '../stores/useAuthStore';
+import { useMetricsStore } from '../stores/useMetricsStore';
 import { api } from '../api/client';
 import { showError } from '../lib/toast';
-import ServerCard from '../components/ServerCard';
 import Modal from '../components/Modal';
 import { ComponentErrorBoundary } from '../components/ComponentErrorBoundary';
 import { LoadingSpinner } from '../components/LoadingSpinner';
 import { QueryError } from '../components/QueryError';
+import { Sparkline } from '../components/MetricsChart';
 
 export default function Servers() {
   const { data: servers, isLoading, error, refetch } = useServers();
-  const { data: deployments } = useDeployments();
-  const { data: apps } = useApps();
   // Use selector to avoid subscribing to entire store state
   const user = useAuthStore((state) => state.user);
+  const addMetrics = useMetricsStore((state) => state.addMetrics);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [setupModalOpen, setSetupModalOpen] = useState(false);
   const [guideModalOpen, setGuideModalOpen] = useState(false);
   const [bootstrapCommand, setBootstrapCommand] = useState<string | null>(null);
   const [setupServerName, setSetupServerName] = useState<string>('');
   const [copied, setCopied] = useState(false);
-
-  const startMutation = useStartDeployment();
-  const stopMutation = useStopDeployment();
-  const restartMutation = useRestartDeployment();
-  const uninstallMutation = useUninstallDeployment();
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const canManage = user?.isSystemAdmin ?? false;
-  const canOperate = user?.isSystemAdmin || user?.groups?.some(g => g.role === 'admin' || g.role === 'operator') || false;
+
+  // Seed metrics from server data
+  if (servers) {
+    servers.forEach((server) => {
+      if (server.metrics && server.agentStatus === 'online') {
+        addMetrics(server.id, server.metrics);
+      }
+    });
+  }
 
   const handleAddServer = async (name: string, host: string) => {
     try {
@@ -45,6 +50,7 @@ export default function Servers() {
   const handleDeleteServer = async (serverId: string) => {
     try {
       await api.deleteServer(serverId);
+      setDeleteConfirmId(null);
       refetch();
     } catch (err) {
       console.error('Failed to delete server:', err);
@@ -100,28 +106,147 @@ export default function Servers() {
         <QueryError error={error} refetch={refetch} message="Failed to load servers" />
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-4">
-          {servers?.map((server) => {
-            const serverDeployments = deployments?.filter((d) => d.serverId === server.id) || [];
-            return (
-              <ComponentErrorBoundary key={server.id} componentName={`Server: ${server.name}`}>
-                <ServerCard
-                  server={server}
-                  deployments={serverDeployments}
-                  apps={apps}
-                  canManage={canManage}
-                  canOperate={canOperate}
-                  onDelete={() => handleDeleteServer(server.id)}
-                  onViewGuide={() => handleViewGuide(server.name)}
-                  onRegenerate={() => handleRegenerateToken(server.id, server.name)}
-                  onStartApp={(id) => startMutation.mutate(id)}
-                  onStopApp={(id) => stopMutation.mutate(id)}
-                  onRestartApp={(id) => restartMutation.mutate(id)}
-                  onUninstallApp={(id) => uninstallMutation.mutate(id)}
-                />
-              </ComponentErrorBoundary>
-            );
-          })}
+          {servers?.map((server) => (
+            <ComponentErrorBoundary key={server.id} componentName={`Server: ${server.name}`}>
+              <div className="card p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Server size={18} className="text-accent" />
+                    <span className="font-medium">{server.name}</span>
+                    {server.isCore && (
+                      <span className="text-xs px-2 py-0.5 bg-accent/20 text-accent rounded">Core</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      server.agentStatus === 'online'
+                        ? 'bg-green-500/20 text-green-400'
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {server.agentStatus}
+                    </span>
+                    {canManage && !server.isCore && (
+                      <div className="relative">
+                        <button
+                          onClick={() => setOpenMenuId(openMenuId === server.id ? null : server.id)}
+                          className="p-1 hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        {openMenuId === server.id && (
+                          <div className="absolute right-0 top-full mt-1 w-48 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-lg z-10">
+                            <button
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                handleViewGuide(server.name);
+                              }}
+                              className="w-full px-4 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] flex items-center gap-2"
+                            >
+                              <BookOpen size={14} />
+                              Setup Guide
+                            </button>
+                            <button
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                handleRegenerateToken(server.id, server.name);
+                              }}
+                              className="w-full px-4 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] flex items-center gap-2"
+                            >
+                              <RefreshCw size={14} />
+                              Generate New Token
+                            </button>
+                            <button
+                              onClick={() => {
+                                setOpenMenuId(null);
+                                setDeleteConfirmId(server.id);
+                              }}
+                              className="w-full px-4 py-2 text-sm text-left hover:bg-[var(--bg-tertiary)] text-red-400 flex items-center gap-2"
+                            >
+                              <Trash2 size={14} />
+                              Delete Server
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {server.host && (
+                  <p className="text-sm text-muted mb-3">{server.host}</p>
+                )}
+
+                {server.agentStatus === 'online' && server.metrics && (
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted">CPU</span>
+                        <span className="text-xs font-medium">{server.metrics.cpuPercent?.toFixed(0)}%</span>
+                      </div>
+                      <Sparkline serverId={server.id} metric="cpu" height={24} width={90} />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted">Memory</span>
+                        <span className="text-xs font-medium">
+                          {server.metrics.memoryTotal > 0
+                            ? ((server.metrics.memoryUsed / server.metrics.memoryTotal) * 100).toFixed(0)
+                            : 0}%
+                        </span>
+                      </div>
+                      <Sparkline serverId={server.id} metric="memory" height={24} width={90} />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted">Disk</span>
+                        <span className="text-xs font-medium">
+                          {server.metrics.diskTotal > 0
+                            ? ((server.metrics.diskUsed / server.metrics.diskTotal) * 100).toFixed(0)
+                            : 0}%
+                        </span>
+                      </div>
+                      <Sparkline serverId={server.id} metric="disk" height={24} width={90} />
+                    </div>
+                  </div>
+                )}
+
+                {server.agentStatus !== 'online' && (
+                  <p className="text-sm text-muted">Agent offline</p>
+                )}
+              </div>
+            </ComponentErrorBoundary>
+          ))}
         </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmId && (
+        <Modal
+          isOpen={true}
+          onClose={() => setDeleteConfirmId(null)}
+          title="Delete Server"
+          size="sm"
+        >
+          <div className="space-y-4">
+            <p className="text-muted">
+              Are you sure you want to delete this server? This action cannot be undone.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 px-4 py-2 bg-[var(--bg-secondary)] hover:bg-[var(--bg-tertiary)] rounded transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleDeleteServer(deleteConfirmId)}
+                className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* Add Server Modal */}

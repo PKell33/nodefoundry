@@ -1,13 +1,8 @@
-export type AuthView = 'login' | 'setup' | 'totp';
+export type AuthView = 'login' | 'setup';
 
 export interface AuthNavigateProps {
   onNavigate: (view: AuthView) => void;
   onSuccess: () => void;
-}
-
-export interface StoredCredentials {
-  username: string;
-  password: string;
 }
 
 // Tokyo Night color palette for consistent styling

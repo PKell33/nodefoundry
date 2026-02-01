@@ -12,17 +12,13 @@ interface MetricsDataPoint {
 
 interface MetricsState {
   history: Record<string, MetricsDataPoint[]>;
-  maxDataPoints: number;
   addMetrics: (serverId: string, metrics: ServerMetrics) => void;
-  getServerHistory: (serverId: string) => MetricsDataPoint[];
-  clearHistory: (serverId?: string) => void;
 }
 
 const MAX_DATA_POINTS = 60; // Keep last 60 data points (e.g., 60 minutes if updated every minute)
 
-export const useMetricsStore = create<MetricsState>((set, get) => ({
+export const useMetricsStore = create<MetricsState>((set) => ({
   history: {},
-  maxDataPoints: MAX_DATA_POINTS,
 
   addMetrics: (serverId: string, metrics: ServerMetrics) => {
     const timestamp = Date.now();
@@ -53,30 +49,4 @@ export const useMetricsStore = create<MetricsState>((set, get) => ({
       };
     });
   },
-
-  getServerHistory: (serverId: string) => {
-    return get().history[serverId] || [];
-  },
-
-  clearHistory: (serverId?: string) => {
-    if (serverId) {
-      set((state) => {
-        const { [serverId]: _, ...rest } = state.history;
-        return { history: rest };
-      });
-    } else {
-      set({ history: {} });
-    }
-  },
 }));
-
-// Helper to format data for Recharts
-export function formatMetricsForChart(history: MetricsDataPoint[]) {
-  return history.map((point, index) => ({
-    time: new Date(point.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    index,
-    cpu: point.cpu,
-    memory: point.memoryPercent,
-    disk: point.diskPercent,
-  }));
-}

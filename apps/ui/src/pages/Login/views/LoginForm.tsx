@@ -6,16 +6,14 @@ import { api } from '../../../api/client';
 import { useAuthStore } from '../../../stores/useAuthStore';
 import AuthInput from '../components/AuthInput';
 import AuthButton from '../components/AuthButton';
-import type { StoredCredentials } from '../types';
 
 interface LoginFormProps {
-  onTotpRequired: (credentials: StoredCredentials) => void;
   onSetupRequired: () => void;
-  onSuccess: (redirectTo: string, totpSetupRequired?: boolean) => void;
+  onSuccess: (redirectTo: string) => void;
 }
 
-export default function LoginForm({ onTotpRequired, onSetupRequired, onSuccess }: LoginFormProps) {
-  const { setAuthenticated, setError, setLoading, isLoading, clearError, setTotpSetupRequired } = useAuthStore();
+export default function LoginForm({ onSetupRequired, onSuccess }: LoginFormProps) {
+  const { setAuthenticated, setError, setLoading, isLoading, clearError } = useAuthStore();
 
   const form = useForm<LoginFormData>({
     resolver: zodResolver(loginFormSchema),
@@ -29,16 +27,9 @@ export default function LoginForm({ onTotpRequired, onSetupRequired, onSuccess }
 
     try {
       const response = await api.login(data.username, data.password);
-      if ('totpRequired' in response && response.totpRequired) {
-        onTotpRequired({ username: data.username, password: data.password });
-      } else if (response.user) {
+      if (response.user) {
         setAuthenticated(response.user);
-        if ('totpSetupRequired' in response && response.totpSetupRequired) {
-          setTotpSetupRequired(true);
-          onSuccess('/setup-2fa', true);
-        } else {
-          onSuccess('/', false);
-        }
+        onSuccess('/');
       }
     } catch (err) {
       if (err instanceof Error) {

@@ -1,14 +1,13 @@
 import type { AgentCommand, AgentStatusReport } from '@ownprem/shared';
 import { Connection } from './connection.js';
-import { Executor } from './executor.js';
 import { Reporter } from './reporter.js';
+import { privilegedClient } from './privilegedClient.js';
 import logger from './lib/logger.js';
 
 const STATUS_REPORT_INTERVAL = 10000; // 10 seconds
 
 class Agent {
   private connection: Connection;
-  private executor: Executor;
   private reporter: Reporter;
   private statusInterval: NodeJS.Timeout | null = null;
   private isShuttingDown = false;
@@ -20,8 +19,6 @@ class Agent {
     private authToken: string | null
   ) {
     const appsDir = process.env.APPS_DIR || '/opt/ownprem/apps';
-    const dataDir = process.env.DATA_DIR || undefined; // Let Executor determine default
-    this.executor = new Executor(appsDir, dataDir);
     this.reporter = new Reporter(serverId, appsDir);
 
     this.connection = new Connection({
@@ -80,9 +77,6 @@ class Agent {
       this.statusInterval = null;
     }
 
-    // Stop all log streams
-    this.executor.stopAllLogStreams();
-
     // Wait for active commands to complete (max 30 seconds)
     const startTime = Date.now();
     const maxWaitMs = 30000;
@@ -105,7 +99,7 @@ class Agent {
   private async handleCommand(cmd: AgentCommand): Promise<void> {
     // Reject new commands during shutdown
     if (this.isShuttingDown) {
-      logger.warn({ commandId: cmd.id, action: cmd.action, appName: cmd.appName }, 'Rejecting command during shutdown');
+      logger.warn({ commandId: cmd.id, action: cmd.action }, 'Rejecting command during shutdown');
       this.connection.sendCommandResult({
         commandId: cmd.id,
         status: 'error',
@@ -114,7 +108,7 @@ class Agent {
       return;
     }
 
-    logger.info({ commandId: cmd.id, action: cmd.action, appName: cmd.appName }, 'Received command');
+    logger.info({ commandId: cmd.id, action: cmd.action }, 'Received command');
     this.activeCommandCount++;
 
     // Send acknowledgment immediately
@@ -127,111 +121,37 @@ class Agent {
 
     try {
       switch (cmd.action) {
-        case 'install':
-          await this.executor.install(cmd.appName, cmd.payload || {});
-          break;
-        case 'configure':
-          await this.executor.configure(cmd.appName, cmd.payload?.files || []);
-          break;
-        case 'start':
-          await this.executor.systemctl('start', cmd.appName);
-          break;
-        case 'stop':
-          await this.executor.systemctl('stop', cmd.appName);
-          break;
-        case 'restart':
-          await this.executor.systemctl('restart', cmd.appName);
-          break;
-        case 'uninstall':
-          await this.executor.uninstall(cmd.appName);
-          break;
-        case 'getLogs': {
-          const logResult = await this.executor.getLogs(cmd.appName, cmd.payload?.logOptions);
-          this.connection.sendLogResult({
-            commandId: cmd.id,
-            ...logResult,
-          });
-          return; // Don't send normal command result for logs
-        }
         case 'mountStorage':
           if (!cmd.payload?.mountOptions) {
             throw new Error('Mount options required for mountStorage action');
           }
-          await this.executor.mountStorage(cmd.payload.mountOptions);
+          await this.mountStorage(cmd.payload.mountOptions);
           break;
         case 'unmountStorage':
           if (!cmd.payload?.mountOptions?.mountPoint) {
             throw new Error('Mount point required for unmountStorage action');
           }
-          await this.executor.unmountStorage(cmd.payload.mountOptions.mountPoint);
+          await this.unmountStorage(cmd.payload.mountOptions.mountPoint);
           break;
         case 'checkMount': {
           if (!cmd.payload?.mountOptions?.mountPoint) {
             throw new Error('Mount point required for checkMount action');
           }
-          const checkResult = await this.executor.checkMount(cmd.payload.mountOptions.mountPoint);
+          const checkResult = await this.checkMount(cmd.payload.mountOptions.mountPoint);
           this.connection.sendCommandResult({
             commandId: cmd.id,
             status: 'success',
             duration: Date.now() - start,
             data: checkResult,
           });
+          this.activeCommandCount--;
           return; // Don't send normal command result
         }
-        case 'configureKeepalived': {
-          if (!cmd.payload?.keepalivedConfig) {
-            throw new Error('Keepalived config required for configureKeepalived action');
-          }
-          await this.executor.configureKeepalived(
-            cmd.payload.keepalivedConfig,
-            cmd.payload.enabled ?? true
-          );
-          break;
-        }
-        case 'checkKeepalived': {
-          const keepalivedStatus = await this.executor.checkKeepalived();
-          this.connection.sendCommandResult({
-            commandId: cmd.id,
-            status: 'success',
-            duration: Date.now() - start,
-            data: keepalivedStatus,
-          });
-          return; // Don't send normal command result
-        }
-        case 'streamLogs': {
-          const streamStarted = this.executor.startLogStream(
-            cmd.id, // Use command ID as stream ID
-            cmd.appName,
-            cmd.payload?.logOptions || {},
-            (line) => this.connection.sendLogStreamLine(line),
-            (error) => {
-              this.connection.sendLogStreamStatus({
-                streamId: cmd.id,
-                appName: cmd.appName,
-                status: 'error',
-                message: error,
-              });
-            }
-          );
-
-          this.connection.sendLogStreamStatus({
-            streamId: cmd.id,
-            appName: cmd.appName,
-            status: streamStarted ? 'started' : 'error',
-            message: streamStarted ? undefined : 'Failed to start stream',
-          });
-          return; // Log streaming doesn't send normal command result
-        }
-        case 'stopStreamLogs': {
-          const stopped = this.executor.stopLogStream(cmd.id);
-          this.connection.sendLogStreamStatus({
-            streamId: cmd.id,
-            appName: cmd.appName,
-            status: 'stopped',
-            message: stopped ? undefined : 'Stream not found',
-          });
-          return;
-        }
+        // TODO: Add Docker commands here
+        // case 'docker:deploy':
+        // case 'docker:start':
+        // case 'docker:stop':
+        // case 'docker:logs':
         default:
           throw new Error(`Unknown action: ${cmd.action}`);
       }
@@ -262,6 +182,42 @@ class Agent {
     await this.reportStatus();
   }
 
+  // Mount storage via privileged helper
+  private async mountStorage(options: {
+    mountType: string;
+    source: string;
+    mountPoint: string;
+    options?: string;
+    credentials?: { username: string; password: string; domain?: string };
+  }): Promise<void> {
+    logger.info({ mountPoint: options.mountPoint, source: options.source }, 'Mounting storage');
+
+    await privilegedClient.mount(
+      options.mountType as 'nfs' | 'cifs',
+      options.source,
+      options.mountPoint,
+      options.options,
+      options.credentials
+    );
+  }
+
+  // Unmount storage via privileged helper
+  private async unmountStorage(mountPoint: string): Promise<void> {
+    logger.info({ mountPoint }, 'Unmounting storage');
+    await privilegedClient.umount(mountPoint);
+  }
+
+  // Check if mount point is mounted
+  private async checkMount(mountPoint: string): Promise<{ mounted: boolean; source?: string }> {
+    const { execSync } = await import('child_process');
+    try {
+      const output = execSync(`findmnt -n -o SOURCE "${mountPoint}"`, { encoding: 'utf8' });
+      return { mounted: true, source: output.trim() };
+    } catch {
+      return { mounted: false };
+    }
+  }
+
   private async reportStatus(): Promise<void> {
     try {
       const report: AgentStatusReport = {
@@ -269,7 +225,7 @@ class Agent {
         timestamp: new Date(),
         metrics: await this.reporter.getMetrics(),
         networkInfo: this.reporter.getNetworkInfo(),
-        apps: await this.reporter.getAppStatuses(),
+        apps: [], // No native apps anymore - Docker containers will be reported differently
       };
 
       this.connection.sendStatus(report);

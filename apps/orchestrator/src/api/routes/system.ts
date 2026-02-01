@@ -1,10 +1,8 @@
-import { Router, Response, NextFunction } from 'express';
+import { Router } from 'express';
 import { createReadStream } from 'fs';
 import { getDb } from '../../db/index.js';
 import { backupService } from '../../services/backupService.js';
 import { configExportService, ConfigExport } from '../../services/configExportService.js';
-import { systemAppsService } from '../../services/systemAppsService.js';
-import { stateRecoveryService } from '../../jobs/stateRecovery.js';
 import { requireAuth, requireSystemAdmin, AuthenticatedRequest } from '../middleware/auth.js';
 import { csrfProtection } from '../middleware/csrf.js';
 import { validateBody, validateParams, validateQuery, schemas } from '../middleware/validate.js';
@@ -69,19 +67,6 @@ router.get('/status', (_req, res) => {
     },
     timestamp: new Date().toISOString(),
   });
-});
-
-// GET /api/system/apps - System apps status
-router.get('/apps', requireAuth, async (_req, res, next) => {
-  try {
-    const status = await systemAppsService.getSystemAppsStatus();
-    res.json({
-      apps: status,
-      allInstalled: status.every(a => a.installed),
-    });
-  } catch (err) {
-    next(err);
-  }
 });
 
 // GET /api/system/proxy-routes - Current proxy configuration
@@ -287,69 +272,6 @@ router.post('/import', requireAuth, requireSystemAdmin, csrfProtection, validate
       skipped: result.skipped,
       warnings: result.warnings,
       errors: result.errors,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// ===============================
-// State Recovery Routes (System Admin Only)
-// ===============================
-
-// GET /api/system/recovery-status - Check for stuck deployments
-router.get('/recovery-status', requireAuth, requireSystemAdmin, (_req, res, next) => {
-  try {
-    const status = stateRecoveryService.getRecoveryStatus();
-
-    res.json({
-      stuckDeployments: status.stuckDeployments,
-      lastRecoveryRun: status.lastRecoveryRun,
-      previousResults: status.recoveryResults,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/system/recover - Trigger manual recovery
-router.post('/recover', requireAuth, requireSystemAdmin, csrfProtection, async (_req, res, next) => {
-  try {
-    const results = await stateRecoveryService.recoverStuckDeployments();
-
-    res.json({
-      success: true,
-      processedCount: results.length,
-      results: results.map(r => ({
-        deploymentId: r.deploymentId,
-        appName: r.appName,
-        serverId: r.serverId,
-        previousState: r.previousState,
-        action: r.action,
-        newState: r.newState,
-        message: r.message,
-      })),
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/system/deployments/:id/sync-status - Force sync single deployment status
-router.post('/deployments/:id/sync-status', requireAuth, requireSystemAdmin, csrfProtection, validateParams(schemas.system.syncStatus), async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const result = await stateRecoveryService.syncDeploymentState(id);
-
-    res.json({
-      success: result.action !== 'no_action' || result.message === 'Deployment is not in a transient state',
-      deploymentId: result.deploymentId,
-      appName: result.appName,
-      serverId: result.serverId,
-      previousState: result.previousState,
-      action: result.action,
-      newState: result.newState,
-      message: result.message,
     });
   } catch (err) {
     next(err);

@@ -1,296 +1,75 @@
-import { useState } from 'react';
-import { useApps, useDeployments, useServers, useStartDeployment, useStopDeployment, useRestartDeployment, useUninstallDeployment } from '../hooks/useApi';
-import { useAuthStore } from '../stores/useAuthStore';
-import AppCard from '../components/AppCard';
-import AppDetailModal from '../components/AppDetailModal';
-import InstallModal from '../components/InstallModal';
-import ConnectionInfoModal from '../components/ConnectionInfoModal';
-import LogViewerModal from '../components/LogViewerModal';
-import EditConfigModal from '../components/EditConfigModal';
-import Modal from '../components/Modal';
-import { LoadingSpinner } from '../components/LoadingSpinner';
-import { QueryError } from '../components/QueryError';
-import type { AppManifest, Deployment } from '../api/client';
+import { Package, ExternalLink } from 'lucide-react';
 
-type ConfirmAction = {
-  type: 'stop' | 'restart' | 'uninstall';
-  deploymentId: string;
-  appName: string;
-  serverName: string;
-};
-
+/**
+ * Apps page - Umbrel App Store integration (coming soon)
+ *
+ * This will integrate with the Umbrel app ecosystem to provide
+ * 200+ self-hosted applications via Docker containers.
+ */
 export default function Apps() {
-  const { data: apps, isLoading: appsLoading, error: appsError, refetch: refetchApps } = useApps();
-  const { data: deployments } = useDeployments();
-  const { data: servers } = useServers();
-  const [selectedApp, setSelectedApp] = useState<AppManifest | null>(null);
-  const [installApp, setInstallApp] = useState<string | null>(null);
-  const [connectionInfoDeploymentId, setConnectionInfoDeploymentId] = useState<string | null>(null);
-  const [logsDeployment, setLogsDeployment] = useState<{ id: string; appName: string; serverName: string } | null>(null);
-  const [editConfigDeployment, setEditConfigDeployment] = useState<{ deployment: Deployment; app: AppManifest } | null>(null);
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(null);
-  const { user } = useAuthStore();
-
-  // Permission checks
-  const canManage = user?.isSystemAdmin || user?.groups?.some(g => g.role === 'admin');
-  const canOperate = user?.isSystemAdmin || user?.groups?.some(g => g.role === 'admin' || g.role === 'operator') || false;
-
-  const startMutation = useStartDeployment();
-  const stopMutation = useStopDeployment();
-  const restartMutation = useRestartDeployment();
-  const uninstallMutation = useUninstallDeployment();
-
-  const getDeploymentsForApp = (appName: string): Deployment[] => {
-    return deployments?.filter((d) => d.appName === appName) || [];
-  };
-
-  const getServerName = (serverId: string) => {
-    const server = servers?.find(s => s.id === serverId);
-    return server?.name || serverId;
-  };
-
-  // Check if an app conflicts with any installed app
-  const getConflictingApp = (app: AppManifest): string | null => {
-    if (!app.conflicts || !deployments) return null;
-    for (const conflictName of app.conflicts) {
-      const installed = deployments.find(d => d.appName === conflictName);
-      if (installed) {
-        const conflictApp = apps?.find(a => a.name === conflictName);
-        return conflictApp?.displayName || conflictName;
-      }
-    }
-    return null;
-  };
-
-  const handleConfirmAction = () => {
-    if (!confirmAction) return;
-
-    switch (confirmAction.type) {
-      case 'stop':
-        stopMutation.mutate(confirmAction.deploymentId);
-        break;
-      case 'restart':
-        restartMutation.mutate(confirmAction.deploymentId);
-        break;
-      case 'uninstall':
-        uninstallMutation.mutate(confirmAction.deploymentId);
-        break;
-    }
-    setConfirmAction(null);
-  };
-
-  const getConfirmModalContent = () => {
-    if (!confirmAction) return { title: '', message: '', buttonText: '', buttonClass: '' };
-
-    switch (confirmAction.type) {
-      case 'stop':
-        return {
-          title: `Stop ${confirmAction.appName} on ${confirmAction.serverName}?`,
-          message: 'The app will be stopped and any active connections will be terminated.',
-          buttonText: 'Stop',
-          buttonClass: 'bg-yellow-600 hover:bg-yellow-700',
-        };
-      case 'restart':
-        return {
-          title: `Restart ${confirmAction.appName} on ${confirmAction.serverName}?`,
-          message: 'The app will be restarted. This may briefly interrupt service.',
-          buttonText: 'Restart',
-          buttonClass: 'bg-blue-600 hover:bg-blue-700',
-        };
-      case 'uninstall':
-        return {
-          title: `Uninstall ${confirmAction.appName} from ${confirmAction.serverName}?`,
-          message: 'This will remove the app and all its data from this server. This action cannot be undone.',
-          buttonText: 'Uninstall',
-          buttonClass: 'bg-red-600 hover:bg-red-700',
-        };
-    }
-  };
-
-  const categories = [
-    { id: 'system', label: 'System' },
-    { id: 'bitcoin', label: 'Bitcoin' },
-    { id: 'indexer', label: 'Indexers' },
-    { id: 'explorer', label: 'Explorers' },
-    { id: 'database', label: 'Database' },
-    { id: 'web', label: 'Web' },
-    { id: 'networking', label: 'Networking' },
-    { id: 'monitoring', label: 'Monitoring' },
-    { id: 'utility', label: 'Utilities' },
-  ];
-
-  const selectedDeployments = selectedApp ? getDeploymentsForApp(selectedApp.name) : [];
-  const selectedConflict = selectedApp ? getConflictingApp(selectedApp) : null;
-
   return (
-    <div className="space-y-8">
-      {/* Header */}
+    <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold mb-2">Marketplace</h1>
-        <p className="text-gray-400">Browse and install applications from the marketplace</p>
+        <h1 className="text-2xl font-bold mb-2">Apps</h1>
+        <p className="text-muted">Deploy and manage Docker applications</p>
       </div>
 
-      {appsLoading ? (
-        <LoadingSpinner message="Loading apps..." />
-      ) : appsError ? (
-        <QueryError error={appsError} refetch={refetchApps} message="Failed to load apps" />
-      ) : (
-        categories.map((category) => {
-          const categoryApps = apps?.filter((app) => app.category === category.id);
-          if (!categoryApps?.length) return null;
+      <div className="card p-12 text-center">
+        <div className="w-20 h-20 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center mx-auto mb-6">
+          <Package size={40} className="text-accent" />
+        </div>
 
-          return (
-            <section key={category.id}>
-              <h2 className="text-xl font-semibold mb-4">{category.label}</h2>
-              <div className="grid grid-cols-1 xl:grid-cols-2 min-[1800px]:grid-cols-3 gap-4">
-                {categoryApps.map((app) => {
-                  const appDeployments = getDeploymentsForApp(app.name);
-                  const conflictsWith = getConflictingApp(app);
-                  return (
-                    <AppCard
-                      key={app.name}
-                      app={app}
-                      deployments={appDeployments}
-                      servers={servers}
-                      conflictsWith={conflictsWith}
-                      onClick={() => setSelectedApp(app)}
-                      canManage={canManage ?? false}
-                      canOperate={canOperate}
-                      onStart={(deploymentId) => startMutation.mutate(deploymentId)}
-                      onStop={(deploymentId) => {
-                        const deployment = appDeployments.find(d => d.id === deploymentId);
-                        if (deployment) {
-                          setConfirmAction({
-                            type: 'stop',
-                            deploymentId,
-                            appName: app.displayName,
-                            serverName: getServerName(deployment.serverId),
-                          });
-                        }
-                      }}
-                      onRestart={(deploymentId) => {
-                        const deployment = appDeployments.find(d => d.id === deploymentId);
-                        if (deployment) {
-                          setConfirmAction({
-                            type: 'restart',
-                            deploymentId,
-                            appName: app.displayName,
-                            serverName: getServerName(deployment.serverId),
-                          });
-                        }
-                      }}
-                      onUninstall={(deploymentId) => {
-                        const deployment = appDeployments.find(d => d.id === deploymentId);
-                        if (deployment) {
-                          setConfirmAction({
-                            type: 'uninstall',
-                            deploymentId,
-                            appName: app.displayName,
-                            serverName: getServerName(deployment.serverId),
-                          });
-                        }
-                      }}
-                      onConnectionInfo={(deploymentId) => setConnectionInfoDeploymentId(deploymentId)}
-                      onSettings={(deployment) => setEditConfigDeployment({ deployment, app })}
-                      onLogs={(deploymentId, serverName) => setLogsDeployment({ id: deploymentId, appName: app.displayName, serverName })}
-                    />
-                  );
-                })}
-              </div>
-            </section>
-          );
-        })
-      )}
+        <h2 className="text-xl font-semibold mb-3">Umbrel App Store Coming Soon</h2>
 
-      {/* App Detail Modal */}
-      {selectedApp && (
-        <AppDetailModal
-          app={selectedApp}
-          deployments={selectedDeployments}
-          servers={servers}
-          conflictsWith={selectedConflict}
-          isOpen={!!selectedApp}
-          onClose={() => setSelectedApp(null)}
-          canManage={canManage ?? false}
-          canOperate={canOperate}
-          onInstall={() => {
-            setInstallApp(selectedApp.name);
-            setSelectedApp(null);
-          }}
-          onStart={(deploymentId) => startMutation.mutate(deploymentId)}
-          onStop={(deploymentId) => stopMutation.mutate(deploymentId)}
-          onRestart={(deploymentId) => restartMutation.mutate(deploymentId)}
-          onUninstall={(deploymentId) => uninstallMutation.mutate(deploymentId)}
-        />
-      )}
+        <p className="text-muted max-w-md mx-auto mb-6">
+          OwnPrem will integrate with the Umbrel app ecosystem, giving you access to
+          200+ self-hosted applications including Bitcoin nodes, Lightning wallets,
+          media servers, and more.
+        </p>
 
-      {/* Install Modal */}
-      {installApp && (
-        <InstallModal
-          appName={installApp}
-          servers={servers || []}
-          onClose={() => setInstallApp(null)}
-        />
-      )}
-
-      {/* Confirm Action Modal */}
-      {confirmAction && (
-        <Modal
-          isOpen={!!confirmAction}
-          onClose={() => setConfirmAction(null)}
-          title={getConfirmModalContent().title}
-          size="sm"
-        >
-          <div className="space-y-4">
-            <p className="text-[var(--text-secondary)]">
-              {getConfirmModalContent().message}
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="flex-1 px-4 py-2 bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] rounded transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmAction}
-                className={`flex-1 px-4 py-2 text-white rounded transition-colors ${getConfirmModalContent().buttonClass}`}
-              >
-                {getConfirmModalContent().buttonText}
-              </button>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto mb-8">
+          {['Bitcoin Core', 'Lightning', 'Mempool', 'BTCPay Server', 'Nextcloud', 'Jellyfin', 'Home Assistant', 'Gitea'].map((app) => (
+            <div
+              key={app}
+              className="p-3 rounded-lg bg-[var(--bg-secondary)] text-sm text-[var(--text-secondary)]"
+            >
+              {app}
             </div>
-          </div>
-        </Modal>
-      )}
+          ))}
+        </div>
 
-      {/* Connection Info Modal */}
-      {connectionInfoDeploymentId && (
-        <ConnectionInfoModal
-          deploymentId={connectionInfoDeploymentId}
-          isOpen={!!connectionInfoDeploymentId}
-          onClose={() => setConnectionInfoDeploymentId(null)}
-        />
-      )}
+        <a
+          href="https://github.com/getumbrel/umbrel-apps"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 text-accent hover:underline"
+        >
+          Browse Umbrel Apps
+          <ExternalLink size={16} />
+        </a>
+      </div>
 
-      {/* Log Viewer Modal */}
-      {logsDeployment && (
-        <LogViewerModal
-          deploymentId={logsDeployment.id}
-          appName={`${logsDeployment.appName} (${logsDeployment.serverName})`}
-          isOpen={!!logsDeployment}
-          onClose={() => setLogsDeployment(null)}
-        />
-      )}
-
-      {/* Edit Config Modal */}
-      {editConfigDeployment && (
-        <EditConfigModal
-          deployment={editConfigDeployment.deployment}
-          app={editConfigDeployment.app}
-          isOpen={!!editConfigDeployment}
-          onClose={() => setEditConfigDeployment(null)}
-        />
-      )}
+      <div className="card p-6">
+        <h3 className="font-semibold mb-3">Why Umbrel Apps?</h3>
+        <ul className="space-y-2 text-[var(--text-secondary)]">
+          <li className="flex items-start gap-2">
+            <span className="text-accent">•</span>
+            <span><strong>200+ applications</strong> - Bitcoin, media, productivity, and more</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent">•</span>
+            <span><strong>Docker-based</strong> - Isolated, reproducible deployments</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent">•</span>
+            <span><strong>Multi-server</strong> - Deploy apps across your infrastructure (OwnPrem exclusive)</span>
+          </li>
+          <li className="flex items-start gap-2">
+            <span className="text-accent">•</span>
+            <span><strong>NFS storage</strong> - Use your NAS for app data (OwnPrem exclusive)</span>
+          </li>
+        </ul>
+      </div>
     </div>
   );
 }

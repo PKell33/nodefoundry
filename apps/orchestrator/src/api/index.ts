@@ -4,13 +4,8 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import { randomUUID } from 'crypto';
-import { existsSync } from 'fs';
-import { join } from 'path';
 import authRouter from './routes/auth.js';
 import serversRouter from './routes/servers.js';
-import appsRouter from './routes/apps.js';
-import deploymentsRouter from './routes/deployments.js';
-import servicesRouter from './routes/services.js';
 import systemRouter from './routes/system.js';
 import proxyRouter from './routes/proxy.js';
 import agentRouter from './routes/agent.js';
@@ -236,32 +231,8 @@ export function createApi(): express.Application {
   // Certificate routes (unauthenticated - needed before users can trust the site)
   app.use('/api/certificate', certificateRouter);
 
-  // App icons (unauthenticated - just static assets)
-  app.get('/api/apps/:name/icon', (req, res) => {
-    const appDefsPath = config.paths.appDefinitions;
-    const appDir = join(appDefsPath, req.params.name);
-
-    const pngPath = join(appDir, 'icon.png');
-    const svgPath = join(appDir, 'icon.svg');
-
-    if (existsSync(pngPath)) {
-      res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(pngPath);
-    } else if (existsSync(svgPath)) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(svgPath);
-    } else {
-      res.status(404).json({ error: 'Icon not found' });
-    }
-  });
-
   // Protected API routes - use devBypassAuth for development convenience, csrfProtection for CSRF defense
   app.use('/api/servers', devBypassAuth, csrfProtection, serversRouter);
-  app.use('/api/apps', devBypassAuth, appsRouter); // Read-only, no CSRF needed
-  app.use('/api/deployments', devBypassAuth, csrfProtection, deploymentsRouter);
-  app.use('/api/services', devBypassAuth, servicesRouter); // Read-only, no CSRF needed
   app.use('/api/system', devBypassAuth, systemRouter); // Has both read and write ops, CSRF applied per-route
   app.use('/api/commands', devBypassAuth, commandsRouter); // Read-only, no CSRF needed
   app.use('/api/mounts', devBypassAuth, csrfProtection, mountsRouter);

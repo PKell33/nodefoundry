@@ -316,81 +316,8 @@ export const api = {
     );
   },
 
-  // Apps
-  async getApps(includeSystem = true) {
-    const params = includeSystem ? '?includeSystem=true' : '';
-    return fetchWithAuth<AppManifest[]>(`${API_BASE}/apps${params}`);
-  },
-
-  async getApp(name: string) {
-    return fetchWithAuth<AppManifest>(`${API_BASE}/apps/${name}`);
-  },
-
-  // Deployments
-  async getDeployments(serverId?: string) {
-    const url = serverId ? `${API_BASE}/deployments?serverId=${serverId}` : `${API_BASE}/deployments`;
-    return fetchWithAuth<Deployment[]>(url);
-  },
-
-  async getDeployment(id: string) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}`);
-  },
-
-  async validateInstall(serverId: string, appName: string) {
-    return fetchWithAuth<ValidationResult>(`${API_BASE}/deployments/validate`, {
-      method: 'POST',
-      body: JSON.stringify({ serverId, appName }),
-    });
-  },
-
-  async installApp(
-    serverId: string,
-    appName: string,
-    config?: Record<string, unknown>,
-    groupId?: string,
-    serviceBindings?: Record<string, string>
-  ) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments`, {
-      method: 'POST',
-      body: JSON.stringify({ serverId, appName, config, groupId, serviceBindings }),
-    });
-  },
-
-  async updateDeployment(id: string, config: Record<string, unknown>) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify({ config }),
-    });
-  },
-
-  async startDeployment(id: string) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/start`, { method: 'POST' });
-  },
-
-  async stopDeployment(id: string) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/stop`, { method: 'POST' });
-  },
-
-  async restartDeployment(id: string) {
-    return fetchWithAuth<Deployment>(`${API_BASE}/deployments/${id}/restart`, { method: 'POST' });
-  },
-
-  async uninstallDeployment(id: string) {
-    return fetchWithAuth<void>(`${API_BASE}/deployments/${id}`, { method: 'DELETE' });
-  },
-
-  async getConnectionInfo(deploymentId: string) {
-    return fetchWithAuth<ConnectionInfo>(`${API_BASE}/deployments/${deploymentId}/connection-info`);
-  },
-
-  async getDeploymentLogs(deploymentId: string, options?: { lines?: number; since?: string; grep?: string }) {
-    const params = new URLSearchParams();
-    if (options?.lines) params.set('lines', options.lines.toString());
-    if (options?.since) params.set('since', options.since);
-    if (options?.grep) params.set('grep', options.grep);
-    const query = params.toString() ? `?${params.toString()}` : '';
-    return fetchWithAuth<LogsResponse>(`${API_BASE}/deployments/${deploymentId}/logs${query}`);
-  },
+  // TODO: Umbrel App Store integration will be added here
+  // Apps and deployments will use Docker containers from Umbrel ecosystem
 
   // System
   async getSystemStatus() {

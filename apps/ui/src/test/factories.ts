@@ -5,7 +5,7 @@
  * All factories support partial overrides for customization.
  */
 
-import type { Server, Deployment, AppManifest, SystemStatus, UserInfo, Group, GroupWithMembers } from '../api/client';
+import type { Server, Deployment, AppManifest, SystemStatus, UserInfo } from '../api/client';
 
 // ============================================================================
 // Server Factories
@@ -160,42 +160,6 @@ export function createMockAdminUser(overrides: Partial<UserInfo> = {}): UserInfo
 }
 
 // ============================================================================
-// Group Factories
-// ============================================================================
-
-let groupIdCounter = 1;
-
-export function createMockGroup(overrides: Partial<Group> = {}): Group {
-  const id = overrides.id || `group-${groupIdCounter++}`;
-  return {
-    id,
-    name: overrides.name || `Test Group ${id}`,
-    description: overrides.description || 'A test group',
-    totp_required: overrides.totp_required ?? false,
-    created_at: overrides.created_at || new Date().toISOString(),
-    updated_at: overrides.updated_at || new Date().toISOString(),
-    ...overrides,
-  };
-}
-
-export function createMockGroups(count: number): Group[] {
-  return Array.from({ length: count }, (_, i) =>
-    createMockGroup({
-      id: `group-${i + 1}`,
-      name: `Group ${i + 1}`,
-    })
-  );
-}
-
-export function createMockGroupWithMembers(overrides: Partial<GroupWithMembers> = {}): GroupWithMembers {
-  const base = createMockGroup(overrides);
-  return {
-    ...base,
-    members: overrides.members || [],
-  };
-}
-
-// ============================================================================
 // Auth Store Mock State Factories
 // ============================================================================
 
@@ -270,5 +234,4 @@ export function resetFactoryCounters(): void {
   serverIdCounter = 1;
   deploymentIdCounter = 1;
   userIdCounter = 1;
-  groupIdCounter = 1;
 }

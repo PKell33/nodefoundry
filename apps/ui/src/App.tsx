@@ -12,7 +12,7 @@ import { PageLoadingSpinner } from './components/LoadingSpinner';
 // Lazy load page components for code splitting
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Servers = lazy(() => import('./pages/Servers'));
-const Apps = lazy(() => import('./pages/Apps'));
+const Apps = lazy(() => import('./pages/Apps')); // Umbrel App Store (coming soon)
 const Storage = lazy(() => import('./pages/Storage'));
 const Admin = lazy(() => import('./pages/Admin'));
 const MyAccount = lazy(() => import('./pages/MyAccount'));

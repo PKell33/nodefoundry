@@ -274,36 +274,6 @@
   @apply bg-gray-400;
 }
 
-/* Status indicators */
-.status-dot {
-  @apply w-2 h-2 rounded-full;
-}
-
-.status-online {
-  @apply bg-green-500;
-}
-
-.status-offline {
-  @apply bg-gray-500;
-}
-
-.status-error {
-  @apply bg-red-500;
-}
-
-.status-running {
-  @apply bg-green-500;
-}
-
-.status-stopped {
-  @apply bg-yellow-500;
-}
-
-.status-installing {
-  background-color: var(--color-accent);
-  @apply animate-pulse;
-}
-
 /* Mobile responsive utilities */
 @media (max-width: 768px) {
   .mobile-hidden {
@@ -315,18 +285,3 @@
   }
 }
 
-/* Chart styles */
-.recharts-cartesian-grid-horizontal line,
-.recharts-cartesian-grid-vertical line {
-  stroke-opacity: 0.1;
-}
-
-.dark .recharts-cartesian-grid-horizontal line,
-.dark .recharts-cartesian-grid-vertical line {
-  stroke: var(--tokyo-text);
-}
-
-.light .recharts-cartesian-grid-horizontal line,
-.light .recharts-cartesian-grid-vertical line {
-  stroke: #1e293b;
-}

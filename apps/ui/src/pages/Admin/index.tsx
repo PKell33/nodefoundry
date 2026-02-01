@@ -4,12 +4,10 @@ import { useAuthStore } from '../../stores/useAuthStore';
 import { ComponentErrorBoundary } from '../../components/ComponentErrorBoundary';
 import AdminTabs from './AdminTabs';
 import UserManagement from './sections/UserManagement';
-import GroupManagement from './sections/GroupManagement';
-import AuditLog from './sections/AuditLog';
 import type { TabId } from './types';
 
 /**
- * Admin page - User management, groups, and audit logs.
+ * Admin page - User management.
  * Only accessible by system administrators.
  */
 export default function Admin() {
@@ -25,7 +23,7 @@ export default function Admin() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold mb-2">Administration</h1>
-        <p className="text-muted">Manage users, groups, and view audit logs</p>
+        <p className="text-muted">Manage users</p>
       </div>
 
       <AdminTabs activeTab={activeTab} onTabChange={setActiveTab} />
@@ -34,16 +32,6 @@ export default function Admin() {
       {activeTab === 'users' && (
         <ComponentErrorBoundary componentName="User Management">
           <UserManagement currentUserId={currentUser?.userId} />
-        </ComponentErrorBoundary>
-      )}
-      {activeTab === 'groups' && (
-        <ComponentErrorBoundary componentName="Group Management">
-          <GroupManagement />
-        </ComponentErrorBoundary>
-      )}
-      {activeTab === 'audit' && (
-        <ComponentErrorBoundary componentName="Audit Log">
-          <AuditLog />
         </ComponentErrorBoundary>
       )}
     </div>

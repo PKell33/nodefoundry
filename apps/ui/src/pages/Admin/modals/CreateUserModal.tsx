@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Loader2, AlertCircle } from 'lucide-react';
 import Modal from '../../../components/Modal';
 import { api, UserInfo } from '../../../api/client';
-import type { GroupRole } from '../types';
+
+type UserRole = 'admin' | 'operator' | 'viewer';
 
 interface CreateUserModalProps {
   onSuccess: (user: UserInfo) => void;
@@ -16,7 +17,7 @@ interface CreateUserModalProps {
 export default function CreateUserModal({ onSuccess, onClose }: CreateUserModalProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState<GroupRole>('viewer');
+  const [role, setRole] = useState<UserRole>('viewer');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,7 +93,7 @@ export default function CreateUserModal({ onSuccess, onClose }: CreateUserModalP
           <select
             id="create-user-role"
             value={role}
-            onChange={(e) => setRole(e.target.value as GroupRole)}
+            onChange={(e) => setRole(e.target.value as UserRole)}
             className="w-full px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-color)] rounded-lg"
           >
             <option value="viewer">Viewer (read only)</option>
