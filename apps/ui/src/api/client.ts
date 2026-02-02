@@ -29,6 +29,110 @@ export type {
 
 const API_BASE = '/api';
 
+// ==================== Store API Factory ====================
+
+/**
+ * Generic registry type - all stores use the same structure
+ */
+interface StoreRegistry {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  appCount?: number;
+  lastSync?: string;
+  createdAt: string;
+}
+
+interface RegistriesResponse {
+  registries: StoreRegistry[];
+}
+
+interface AppsListResponse<T> {
+  apps: T[];
+  count: number;
+  source?: string;
+}
+
+interface SyncResponse {
+  synced: number;
+  updated: number;
+  removed: number;
+  errors: string[];
+  message: string;
+}
+
+interface SyncStatusResponse {
+  appCount: number;
+  needsSync?: boolean;
+  source?: string;
+}
+
+/**
+ * Create store API methods for a given store type.
+ * Eliminates duplication across umbrel, start9, casaos, and runtipi.
+ */
+function createStoreApi<TApp, TRegistry extends StoreRegistry = StoreRegistry>(
+  storePath: string,
+  appsPath: string = '/apps'
+) {
+  const registriesPath = '/registries';
+
+  return {
+    // Registry methods
+    getRegistries: () =>
+      fetchWithAuth<RegistriesResponse>(`${API_BASE}/${storePath}${registriesPath}`),
+
+    addRegistry: (id: string, name: string, url: string) =>
+      fetchWithAuth<TRegistry>(`${API_BASE}/${storePath}${registriesPath}`, {
+        method: 'POST',
+        body: JSON.stringify({ id, name, url }),
+      }),
+
+    updateRegistry: (id: string, updates: { name?: string; url?: string; enabled?: boolean }) =>
+      fetchWithAuth<TRegistry>(`${API_BASE}/${storePath}${registriesPath}/${encodeURIComponent(id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(updates),
+      }),
+
+    removeRegistry: (id: string) =>
+      fetchWithAuth<void>(`${API_BASE}/${storePath}${registriesPath}/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
+
+    // App methods
+    getApps: () =>
+      fetchWithAuth<AppsListResponse<TApp>>(`${API_BASE}/${storePath}${appsPath}`),
+
+    getApp: (id: string) =>
+      fetchWithAuth<TApp>(`${API_BASE}/${storePath}${appsPath}/${encodeURIComponent(id)}`),
+
+    syncApps: (registryId?: string) => {
+      const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
+      return fetchWithAuth<SyncResponse>(`${API_BASE}/${storePath}${appsPath}/sync${query}`, {
+        method: 'POST',
+      });
+    },
+
+    getSyncStatus: () =>
+      fetchWithAuth<SyncStatusResponse>(`${API_BASE}/${storePath}${appsPath}/status`),
+
+    // Icon URL helper
+    getIconUrl: (appId: string, registry?: string) => {
+      if (registry) {
+        return `${API_BASE}/${storePath}${appsPath}/${encodeURIComponent(registry)}/${encodeURIComponent(appId)}/icon`;
+      }
+      return `${API_BASE}/${storePath}${appsPath}/${encodeURIComponent(appId)}/icon`;
+    },
+  };
+}
+
+// Create store-specific API instances
+const umbrelApi = createStoreApi<UmbrelApp, UmbrelRegistry>('apps', '');
+const start9Api = createStoreApi<Start9App, Start9Registry>('start9');
+const casaosApi = createStoreApi<CasaOSApp, CasaOSRegistry>('casaos');
+const runtipiApi = createStoreApi<RuntipiApp, RuntipiRegistry>('runtipi');
+
 // Mutex to prevent concurrent token refresh attempts
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -330,209 +434,63 @@ export const api = {
     );
   },
 
-  // Apps (Umbrel App Store)
-  async getApps(category?: string) {
+  // ==================== Umbrel (Apps) ====================
+  // Uses factory-generated methods with some Umbrel-specific additions
+  getApps: (category?: string) => {
     const query = category ? `?category=${encodeURIComponent(category)}` : '';
     return fetchWithAuth<AppsResponse>(`${API_BASE}/apps${query}`);
   },
+  getApp: umbrelApi.getApp,
+  syncApps: umbrelApi.syncApps,
+  getAppSyncStatus: umbrelApi.getSyncStatus,
+  getUmbrelRegistries: umbrelApi.getRegistries,
+  addUmbrelRegistry: umbrelApi.addRegistry,
+  updateUmbrelRegistry: umbrelApi.updateRegistry,
+  removeUmbrelRegistry: umbrelApi.removeRegistry,
+  getUmbrelIconUrl: umbrelApi.getIconUrl,
 
-  async getApp(id: string) {
-    return fetchWithAuth<UmbrelApp>(`${API_BASE}/apps/${encodeURIComponent(id)}`);
-  },
-
+  // Umbrel-specific: categories endpoint
   async getAppCategories() {
     return fetchWithAuth<AppCategoriesResponse>(`${API_BASE}/apps/categories`);
   },
 
-  async syncApps(registryId?: string) {
-    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
-    return fetchWithAuth<AppSyncResponse>(`${API_BASE}/apps/sync${query}`, {
-      method: 'POST',
-    });
-  },
+  // ==================== Start9 ====================
+  getStart9Apps: start9Api.getApps,
+  getStart9App: start9Api.getApp,
+  syncStart9Apps: start9Api.syncApps,
+  getStart9SyncStatus: start9Api.getSyncStatus,
+  getStart9Registries: start9Api.getRegistries,
+  addStart9Registry: start9Api.addRegistry,
+  updateStart9Registry: start9Api.updateRegistry,
+  removeStart9Registry: start9Api.removeRegistry,
+  getStart9IconUrl: (appId: string) => start9Api.getIconUrl(appId),
 
-  async getAppSyncStatus() {
-    return fetchWithAuth<AppSyncStatus>(`${API_BASE}/apps/status`);
-  },
-
-  // Umbrel Registries
-  async getUmbrelRegistries() {
-    return fetchWithAuth<UmbrelRegistriesResponse>(`${API_BASE}/apps/registries`);
-  },
-
-  async addUmbrelRegistry(id: string, name: string, url: string) {
-    return fetchWithAuth<UmbrelRegistry>(`${API_BASE}/apps/registries`, {
-      method: 'POST',
-      body: JSON.stringify({ id, name, url }),
-    });
-  },
-
-  async updateUmbrelRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
-    return fetchWithAuth<UmbrelRegistry>(`${API_BASE}/apps/registries/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  },
-
-  async removeUmbrelRegistry(id: string) {
-    return fetchWithAuth<void>(`${API_BASE}/apps/registries/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-  },
-
-  // Umbrel app icon URL helper (registry-specific)
-  getUmbrelIconUrl(appId: string, registry?: string) {
-    if (registry) {
-      return `${API_BASE}/apps/${encodeURIComponent(registry)}/${encodeURIComponent(appId)}/icon`;
-    }
-    return `${API_BASE}/apps/${encodeURIComponent(appId)}/icon`;
-  },
-
-  // Start9 Apps
-  async getStart9Apps() {
-    return fetchWithAuth<Start9AppsResponse>(`${API_BASE}/start9/apps`);
-  },
-
-  async getStart9App(id: string) {
-    return fetchWithAuth<Start9App>(`${API_BASE}/start9/apps/${encodeURIComponent(id)}`);
-  },
-
-  async syncStart9Apps(registryId?: string) {
-    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
-    return fetchWithAuth<Start9SyncResponse>(`${API_BASE}/start9/apps/sync${query}`, {
-      method: 'POST',
-    });
-  },
-
-  async getStart9SyncStatus() {
-    return fetchWithAuth<Start9SyncStatus>(`${API_BASE}/start9/apps/status`);
-  },
-
+  // Start9-specific: load Docker image from s9pk
   async loadStart9Image(appId: string) {
     return fetchWithAuth<Start9LoadImageResponse>(`${API_BASE}/start9/apps/${encodeURIComponent(appId)}/load-image`, {
       method: 'POST',
     });
   },
 
-  // Start9 app icon URL helper (not an API call, just constructs the URL)
-  getStart9IconUrl(appId: string) {
-    return `${API_BASE}/start9/apps/${encodeURIComponent(appId)}/icon`;
-  },
+  // ==================== CasaOS ====================
+  getCasaOSApps: casaosApi.getApps,
+  getCasaOSApp: casaosApi.getApp,
+  syncCasaOSApps: casaosApi.syncApps,
+  getCasaOSSyncStatus: casaosApi.getSyncStatus,
+  getCasaOSRegistries: casaosApi.getRegistries,
+  addCasaOSRegistry: casaosApi.addRegistry,
+  updateCasaOSRegistry: casaosApi.updateRegistry,
+  removeCasaOSRegistry: casaosApi.removeRegistry,
 
-  // Start9 Registries
-  async getStart9Registries() {
-    return fetchWithAuth<Start9RegistriesResponse>(`${API_BASE}/start9/registries`);
-  },
-
-  async addStart9Registry(id: string, name: string, url: string) {
-    return fetchWithAuth<Start9Registry>(`${API_BASE}/start9/registries`, {
-      method: 'POST',
-      body: JSON.stringify({ id, name, url }),
-    });
-  },
-
-  async updateStart9Registry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
-    return fetchWithAuth<Start9Registry>(`${API_BASE}/start9/registries/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  },
-
-  async removeStart9Registry(id: string) {
-    return fetchWithAuth<void>(`${API_BASE}/start9/registries/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-  },
-
-  // CasaOS Apps
-  async getCasaOSApps() {
-    return fetchWithAuth<CasaOSAppsResponse>(`${API_BASE}/casaos/apps`);
-  },
-
-  async getCasaOSApp(id: string) {
-    return fetchWithAuth<CasaOSApp>(`${API_BASE}/casaos/apps/${encodeURIComponent(id)}`);
-  },
-
-  async syncCasaOSApps(registryId?: string) {
-    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
-    return fetchWithAuth<CasaOSSyncResponse>(`${API_BASE}/casaos/apps/sync${query}`, {
-      method: 'POST',
-    });
-  },
-
-  async getCasaOSSyncStatus() {
-    return fetchWithAuth<CasaOSSyncStatus>(`${API_BASE}/casaos/apps/status`);
-  },
-
-  // CasaOS Registries
-  async getCasaOSRegistries() {
-    return fetchWithAuth<CasaOSRegistriesResponse>(`${API_BASE}/casaos/registries`);
-  },
-
-  async addCasaOSRegistry(id: string, name: string, url: string) {
-    return fetchWithAuth<CasaOSRegistry>(`${API_BASE}/casaos/registries`, {
-      method: 'POST',
-      body: JSON.stringify({ id, name, url }),
-    });
-  },
-
-  async updateCasaOSRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
-    return fetchWithAuth<CasaOSRegistry>(`${API_BASE}/casaos/registries/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  },
-
-  async removeCasaOSRegistry(id: string) {
-    return fetchWithAuth<void>(`${API_BASE}/casaos/registries/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-  },
-
-  // Runtipi Apps
-  async getRuntipiApps() {
-    return fetchWithAuth<RuntipiAppsResponse>(`${API_BASE}/runtipi/apps`);
-  },
-
-  async getRuntipiApp(id: string) {
-    return fetchWithAuth<RuntipiApp>(`${API_BASE}/runtipi/apps/${encodeURIComponent(id)}`);
-  },
-
-  async syncRuntipiApps(registryId?: string) {
-    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
-    return fetchWithAuth<RuntipiSyncResponse>(`${API_BASE}/runtipi/apps/sync${query}`, {
-      method: 'POST',
-    });
-  },
-
-  async getRuntipiSyncStatus() {
-    return fetchWithAuth<RuntipiSyncStatus>(`${API_BASE}/runtipi/apps/status`);
-  },
-
-  // Runtipi Registries
-  async getRuntipiRegistries() {
-    return fetchWithAuth<RuntipiRegistriesResponse>(`${API_BASE}/runtipi/registries`);
-  },
-
-  async addRuntipiRegistry(id: string, name: string, url: string) {
-    return fetchWithAuth<RuntipiRegistry>(`${API_BASE}/runtipi/registries`, {
-      method: 'POST',
-      body: JSON.stringify({ id, name, url }),
-    });
-  },
-
-  async updateRuntipiRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
-    return fetchWithAuth<RuntipiRegistry>(`${API_BASE}/runtipi/registries/${encodeURIComponent(id)}`, {
-      method: 'PUT',
-      body: JSON.stringify(updates),
-    });
-  },
-
-  async removeRuntipiRegistry(id: string) {
-    return fetchWithAuth<void>(`${API_BASE}/runtipi/registries/${encodeURIComponent(id)}`, {
-      method: 'DELETE',
-    });
-  },
+  // ==================== Runtipi ====================
+  getRuntipiApps: runtipiApi.getApps,
+  getRuntipiApp: runtipiApi.getApp,
+  syncRuntipiApps: runtipiApi.syncApps,
+  getRuntipiSyncStatus: runtipiApi.getSyncStatus,
+  getRuntipiRegistries: runtipiApi.getRegistries,
+  addRuntipiRegistry: runtipiApi.addRegistry,
+  updateRuntipiRegistry: runtipiApi.updateRegistry,
+  removeRuntipiRegistry: runtipiApi.removeRegistry,
 
   // Deployments
   async getDeployments(serverId?: string) {
