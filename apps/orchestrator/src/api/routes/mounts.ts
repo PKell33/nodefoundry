@@ -9,6 +9,7 @@ import {
   rowToServerMount,
   rowToServerMountWithDetails,
 } from '../../db/types.js';
+import { update } from '../../db/queryBuilder.js';
 import { createError, Errors, createTypedError } from '../middleware/error.js';
 import { validateBody, validateParams, schemas } from '../middleware/validate.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
@@ -483,30 +484,17 @@ router.put('/:id', requireAuth, canManageMounts, validateParams(schemas.idParam)
       }
     }
 
-    const updates: string[] = [];
-    const values: unknown[] = [];
+    // Build UPDATE using UpdateBuilder
+    const { setClause, params, hasUpdates } = update()
+      .set('name', name)
+      .set('source', source)
+      .set('default_options', defaultOptions !== undefined ? (defaultOptions || null) : undefined)
+      .set('description', description !== undefined ? (description || null) : undefined)
+      .setRaw('updated_at', 'CURRENT_TIMESTAMP', name !== undefined || source !== undefined || defaultOptions !== undefined || description !== undefined)
+      .build();
 
-    if (name !== undefined) {
-      updates.push('name = ?');
-      values.push(name);
-    }
-    if (source !== undefined) {
-      updates.push('source = ?');
-      values.push(source);
-    }
-    if (defaultOptions !== undefined) {
-      updates.push('default_options = ?');
-      values.push(defaultOptions || null);
-    }
-    if (description !== undefined) {
-      updates.push('description = ?');
-      values.push(description || null);
-    }
-
-    if (updates.length > 0) {
-      updates.push('updated_at = CURRENT_TIMESTAMP');
-      values.push(req.params.id);
-      db.prepare(`UPDATE mounts SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    if (hasUpdates) {
+      db.prepare(`UPDATE mounts SET ${setClause} WHERE id = ?`).run(...params, req.params.id);
     }
 
     // Update credentials if provided

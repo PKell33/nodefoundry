@@ -2,6 +2,7 @@ import { Router, Response, NextFunction } from 'express';
 import { randomBytes } from 'crypto';
 import { getDb } from '../../db/index.js';
 import { ServerRow, rowToServer } from '../../db/types.js';
+import { update } from '../../db/queryBuilder.js';
 import { Errors, createTypedError } from '../middleware/error.js';
 import { validateBody, validateParams, schemas } from '../middleware/validate.js';
 import { requireAuth, AuthenticatedRequest } from '../middleware/auth.js';
@@ -95,27 +96,18 @@ router.put('/:id', requireAuth, canManageServers, validateParams(schemas.serverI
     throw createTypedError(ErrorCodes.CANNOT_MODIFY_CORE, 'Cannot modify core server');
   }
 
-  const updates: string[] = [];
-  const values: unknown[] = [];
+  // Build UPDATE using UpdateBuilder
+  const { setClause, params, hasUpdates } = update()
+    .set('name', name)
+    .set('host', host)
+    .setRaw('updated_at', 'CURRENT_TIMESTAMP')
+    .build();
 
-  if (name !== undefined) {
-    updates.push('name = ?');
-    values.push(name);
-  }
-  if (host !== undefined) {
-    updates.push('host = ?');
-    values.push(host);
-  }
-
-  if (updates.length === 0) {
+  if (!hasUpdates) {
     throw Errors.validation('No fields to update');
   }
 
-  updates.push('updated_at = CURRENT_TIMESTAMP');
-  values.push(req.params.id);
-
-  const stmt = db.prepare(`UPDATE servers SET ${updates.join(', ')} WHERE id = ?`);
-  stmt.run(...values);
+  db.prepare(`UPDATE servers SET ${setClause} WHERE id = ?`).run(...params, req.params.id);
 
   const row = db.prepare('SELECT * FROM servers WHERE id = ?').get(req.params.id) as ServerRow;
   res.json(rowToServer(row));
