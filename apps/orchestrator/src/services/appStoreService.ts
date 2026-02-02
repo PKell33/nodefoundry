@@ -1,31 +1,17 @@
+/**
+ * Umbrel App Store Service
+ *
+ * Syncs apps from Umbrel-compatible registries (GitHub-based stores)
+ * and parses umbrel-app.yml manifests.
+ */
+
 import { parse as parseYaml } from 'yaml';
 import { mkdir, writeFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/index.js';
-import logger from '../lib/logger.js';
+import { BaseStoreService, type StoreRegistry, type BaseAppDefinition, type DefaultRegistry } from './baseStoreService.js';
 import { config } from '../config.js';
-
-// Default registries (seeded on first run)
-const DEFAULT_REGISTRIES = [
-  {
-    id: 'umbrel-official',
-    name: 'Umbrel Official',
-    repoOwner: 'getumbrel',
-    repoName: 'umbrel-apps',
-    branch: 'master',
-  },
-];
-
-export interface UmbrelRegistry {
-  id: string;
-  name: string;
-  url: string;
-  enabled: boolean;
-  appCount?: number;
-  lastSync?: string;
-  createdAt: string;
-}
 
 export interface UmbrelAppManifest {
   manifestVersion: number;
@@ -50,25 +36,26 @@ export interface UmbrelAppManifest {
   submission?: string;
 }
 
-export interface AppDefinition {
-  id: string;
-  name: string;
-  version: string;
-  tagline: string;
-  description: string;
-  category: string;
-  developer: string;
+export interface AppDefinition extends BaseAppDefinition {
   website: string;
   repo: string;
-  port: number;
   dependencies: string[];
-  icon: string;
   gallery: string[];
   composeFile: string;
   manifest: UmbrelAppManifest;
-  registry?: string;
 }
 
+// Re-export registry type for backward compatibility
+export type UmbrelRegistry = StoreRegistry;
+
+// Internal type for raw app data during sync
+interface UmbrelRawData {
+  manifest: UmbrelAppManifest;
+  composeFile: string;
+  galleryBase: string;
+}
+
+// Legacy app_cache row format (Umbrel uses different schema)
 interface AppCacheRow {
   id: string;
   registry: string;
@@ -78,20 +65,36 @@ interface AppCacheRow {
   updated_at: string;
 }
 
-class AppStoreService {
-  private initialized = false;
+class AppStoreService extends BaseStoreService<AppDefinition> {
+  protected readonly storeName = 'umbrel';
 
-  /**
-   * Initialize the app store - create tables if needed
-   */
-  async initialize(): Promise<void> {
+  protected readonly defaultRegistries: DefaultRegistry[] = [
+    {
+      id: 'umbrel-official',
+      name: 'Umbrel Official',
+      url: 'https://github.com/getumbrel/umbrel-apps',
+    },
+  ];
+
+  // Override table names to use existing tables
+  protected override get registriesTable(): string {
+    return 'umbrel_registries';
+  }
+
+  protected override get appCacheTable(): string {
+    return 'app_cache';
+  }
+
+  // ==================== Override Initialization ====================
+
+  override async initialize(): Promise<void> {
     if (this.initialized) return;
 
     const db = getDb();
 
-    // Create registries table
+    // Create registries table (same as base)
     db.exec(`
-      CREATE TABLE IF NOT EXISTS umbrel_registries (
+      CREATE TABLE IF NOT EXISTS ${this.registriesTable} (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         url TEXT NOT NULL UNIQUE,
@@ -101,104 +104,43 @@ class AppStoreService {
       )
     `);
 
-    // Update app_cache to include registry column if not exists
-    const tableInfo = db.prepare("PRAGMA table_info(app_cache)").all() as { name: string }[];
+    // Umbrel uses a different app cache schema with separate manifest and compose_file columns
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ${this.appCacheTable} (
+        id TEXT NOT NULL,
+        registry TEXT NOT NULL DEFAULT 'umbrel-official',
+        category TEXT,
+        manifest TEXT NOT NULL,
+        compose_file TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id, registry)
+      )
+    `);
+
+    // Ensure registry column exists (migration for old schema)
+    const tableInfo = db.prepare(`PRAGMA table_info(${this.appCacheTable})`).all() as { name: string }[];
     const hasRegistry = tableInfo.some(col => col.name === 'registry');
     if (!hasRegistry) {
-      db.exec(`ALTER TABLE app_cache ADD COLUMN registry TEXT DEFAULT 'umbrel-official'`);
+      db.exec(`ALTER TABLE ${this.appCacheTable} ADD COLUMN registry TEXT DEFAULT 'umbrel-official'`);
     }
 
-    // Seed default registries if none exist
-    const registryCount = db.prepare('SELECT COUNT(*) as count FROM umbrel_registries').get() as { count: number };
+    // Seed default registries
+    const registryCount = db.prepare(`SELECT COUNT(*) as count FROM ${this.registriesTable}`).get() as { count: number };
     if (registryCount.count === 0) {
-      const insertStmt = db.prepare('INSERT INTO umbrel_registries (id, name, url, enabled) VALUES (?, ?, ?, 1)');
-      for (const reg of DEFAULT_REGISTRIES) {
-        const url = `https://github.com/${reg.repoOwner}/${reg.repoName}`;
-        insertStmt.run(reg.id, reg.name, url);
+      const insertStmt = db.prepare(`INSERT INTO ${this.registriesTable} (id, name, url, enabled) VALUES (?, ?, ?, 1)`);
+      for (const reg of this.defaultRegistries) {
+        insertStmt.run(reg.id, reg.name, reg.url);
       }
-      logger.info({ count: DEFAULT_REGISTRIES.length }, 'Seeded default Umbrel registries');
+      this.log.info({ store: this.storeName, count: this.defaultRegistries.length }, 'Seeded default registries');
     }
 
     this.initialized = true;
-    logger.info('AppStoreService initialized');
+    this.log.info({ store: this.storeName }, 'Store service initialized');
   }
 
-  /**
-   * Get all registries
-   */
-  async getRegistries(): Promise<UmbrelRegistry[]> {
-    await this.initialize();
-    const db = getDb();
+  // ==================== Store-Specific Implementation ====================
 
-    const rows = db.prepare(`
-      SELECT r.*,
-        (SELECT COUNT(*) FROM app_cache WHERE registry = r.id) as app_count
-      FROM umbrel_registries r
-      ORDER BY r.created_at ASC
-    `).all() as Array<{
-      id: string;
-      name: string;
-      url: string;
-      enabled: number;
-      last_sync: string | null;
-      created_at: string;
-      app_count: number;
-    }>;
-
-    return rows.map(row => ({
-      id: row.id,
-      name: row.name,
-      url: row.url,
-      enabled: row.enabled === 1,
-      appCount: row.app_count,
-      lastSync: row.last_sync || undefined,
-      createdAt: row.created_at,
-    }));
-  }
-
-  /**
-   * Get a single registry by ID
-   */
-  async getRegistry(id: string): Promise<UmbrelRegistry | null> {
-    await this.initialize();
-    const db = getDb();
-
-    const row = db.prepare(`
-      SELECT r.*,
-        (SELECT COUNT(*) FROM app_cache WHERE registry = r.id) as app_count
-      FROM umbrel_registries r
-      WHERE r.id = ?
-    `).get(id) as {
-      id: string;
-      name: string;
-      url: string;
-      enabled: number;
-      last_sync: string | null;
-      created_at: string;
-      app_count: number;
-    } | undefined;
-
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      name: row.name,
-      url: row.url,
-      enabled: row.enabled === 1,
-      appCount: row.app_count,
-      lastSync: row.last_sync || undefined,
-      createdAt: row.created_at,
-    };
-  }
-
-  /**
-   * Add a new registry
-   */
-  async addRegistry(id: string, name: string, url: string): Promise<UmbrelRegistry> {
-    await this.initialize();
-    const db = getDb();
-
-    // Validate URL format - must be a GitHub repo URL
+  protected validateRegistryUrl(url: string): void {
     try {
       const parsed = new URL(url);
       if (!parsed.hostname.includes('github.com')) {
@@ -208,226 +150,14 @@ class AppStoreService {
       if (e instanceof Error && e.message.includes('GitHub')) throw e;
       throw new Error('Invalid registry URL');
     }
-
-    // Check for duplicate URL
-    const existing = db.prepare('SELECT id FROM umbrel_registries WHERE url = ?').get(url);
-    if (existing) {
-      throw new Error('A registry with this URL already exists');
-    }
-
-    // Check for duplicate ID
-    const existingId = db.prepare('SELECT id FROM umbrel_registries WHERE id = ?').get(id);
-    if (existingId) {
-      throw new Error('A registry with this ID already exists');
-    }
-
-    db.prepare('INSERT INTO umbrel_registries (id, name, url, enabled) VALUES (?, ?, ?, 1)')
-      .run(id, name, url);
-
-    logger.info({ id, name, url }, 'Added Umbrel registry');
-
-    return {
-      id,
-      name,
-      url,
-      enabled: true,
-      appCount: 0,
-      createdAt: new Date().toISOString(),
-    };
   }
 
-  /**
-   * Update a registry
-   */
-  async updateRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }): Promise<UmbrelRegistry | null> {
-    await this.initialize();
-    const db = getDb();
+  protected async fetchAppsFromRegistry(registry: StoreRegistry): Promise<Array<{ id: string; version: string; data: unknown }>> {
+    const { owner, repo } = this.parseGitHubUrl(registry.url);
+    const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
+    const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/master`;
+    const galleryBase = `https://${owner}.github.io/${repo}`;
 
-    const existing = await this.getRegistry(id);
-    if (!existing) return null;
-
-    const fields: string[] = [];
-    const values: (string | number)[] = [];
-
-    if (updates.name !== undefined) {
-      fields.push('name = ?');
-      values.push(updates.name);
-    }
-
-    if (updates.url !== undefined) {
-      try {
-        const parsed = new URL(updates.url);
-        if (!parsed.hostname.includes('github.com')) {
-          throw new Error('URL must be a GitHub repository');
-        }
-      } catch (e) {
-        if (e instanceof Error && e.message.includes('GitHub')) throw e;
-        throw new Error('Invalid registry URL');
-      }
-
-      const duplicate = db.prepare('SELECT id FROM umbrel_registries WHERE url = ? AND id != ?').get(updates.url, id);
-      if (duplicate) {
-        throw new Error('A registry with this URL already exists');
-      }
-
-      fields.push('url = ?');
-      values.push(updates.url);
-    }
-
-    if (updates.enabled !== undefined) {
-      fields.push('enabled = ?');
-      values.push(updates.enabled ? 1 : 0);
-    }
-
-    if (fields.length === 0) {
-      return existing;
-    }
-
-    values.push(id);
-    db.prepare(`UPDATE umbrel_registries SET ${fields.join(', ')} WHERE id = ?`).run(...values);
-
-    logger.info({ id, updates }, 'Updated Umbrel registry');
-
-    return this.getRegistry(id);
-  }
-
-  /**
-   * Remove a registry and its cached apps
-   */
-  async removeRegistry(id: string): Promise<boolean> {
-    await this.initialize();
-    const db = getDb();
-
-    const existing = db.prepare('SELECT id FROM umbrel_registries WHERE id = ?').get(id);
-    if (!existing) return false;
-
-    // Delete cached apps for this registry
-    db.prepare('DELETE FROM app_cache WHERE registry = ?').run(id);
-
-    // Delete the registry
-    db.prepare('DELETE FROM umbrel_registries WHERE id = ?').run(id);
-
-    logger.info({ id }, 'Removed Umbrel registry');
-
-    return true;
-  }
-
-  /**
-   * Parse GitHub URL to get owner and repo
-   */
-  private parseGitHubUrl(url: string): { owner: string; repo: string } {
-    const parsed = new URL(url);
-    const parts = parsed.pathname.split('/').filter(Boolean);
-    if (parts.length < 2) {
-      throw new Error('Invalid GitHub URL');
-    }
-    return { owner: parts[0], repo: parts[1] };
-  }
-
-  /**
-   * Sync apps from a specific registry or all registries
-   */
-  async syncApps(registryId?: string): Promise<{ synced: number; updated: number; removed: number; errors: string[] }> {
-    await this.initialize();
-
-    const db = getDb();
-    let synced = 0;
-    let updated = 0;
-    let removed = 0;
-    const errors: string[] = [];
-    const syncedAppIds = new Map<string, Set<string>>();
-
-    // Get registries to sync
-    let registriesToSync: UmbrelRegistry[];
-    if (registryId) {
-      const registry = await this.getRegistry(registryId);
-      if (!registry) {
-        throw new Error(`Registry not found: ${registryId}`);
-      }
-      if (!registry.enabled) {
-        throw new Error(`Registry is disabled: ${registryId}`);
-      }
-      registriesToSync = [registry];
-    } else {
-      registriesToSync = (await this.getRegistries()).filter(r => r.enabled);
-    }
-
-    for (const registry of registriesToSync) {
-      syncedAppIds.set(registry.id, new Set());
-
-      try {
-        const { owner, repo } = this.parseGitHubUrl(registry.url);
-        const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
-        const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/master`;
-        const galleryBase = `https://${owner}.github.io/${repo}`;
-
-        logger.info({ registry: registry.name, url: registry.url }, 'Fetching Umbrel registry');
-
-        // Fetch all apps from this registry
-        const allApps = await this.fetchAllAppsFromRegistry(apiBase, rawBase);
-        logger.info({ registry: registry.name, total: allApps.length }, 'Fetched app list');
-
-        // Sync each app
-        for (const app of allApps) {
-          try {
-            const existing = db.prepare('SELECT id, manifest FROM app_cache WHERE id = ? AND registry = ?')
-              .get(app.id, registry.id) as { id: string; manifest: string } | undefined;
-
-            await this.fetchAndCacheAppFromRegistry(app.id, app.category, registry.id, rawBase, galleryBase);
-            syncedAppIds.get(registry.id)!.add(app.id);
-
-            if (existing) {
-              const oldManifest = JSON.parse(existing.manifest) as UmbrelAppManifest;
-              if (oldManifest.version !== app.version) {
-                updated++;
-              }
-            } else {
-              synced++;
-            }
-          } catch (err) {
-            const msg = `Failed to fetch ${app.id}: ${err instanceof Error ? err.message : String(err)}`;
-            errors.push(msg);
-            logger.warn({ appId: app.id, registry: registry.id, error: err }, msg);
-          }
-        }
-
-        // Update registry last_sync time
-        db.prepare('UPDATE umbrel_registries SET last_sync = CURRENT_TIMESTAMP WHERE id = ?').run(registry.id);
-
-      } catch (err) {
-        const msg = `Failed to sync ${registry.name}: ${err instanceof Error ? err.message : String(err)}`;
-        errors.push(msg);
-        logger.error({ registry: registry.id, error: err }, msg);
-      }
-    }
-
-    // Remove apps no longer in synced registries
-    for (const registry of registriesToSync) {
-      const syncedIds = syncedAppIds.get(registry.id)!;
-      const cachedApps = db.prepare('SELECT id FROM app_cache WHERE registry = ?').all(registry.id) as { id: string }[];
-
-      for (const cached of cachedApps) {
-        if (!syncedIds.has(cached.id)) {
-          // Check if deployed before removing
-          const deployments = db.prepare('SELECT id FROM deployments WHERE app_name = ?').all(cached.id);
-          if (deployments.length > 0) {
-            logger.warn({ appId: cached.id }, 'App removed but still deployed - keeping');
-          } else {
-            db.prepare('DELETE FROM app_cache WHERE id = ? AND registry = ?').run(cached.id, registry.id);
-            removed++;
-          }
-        }
-      }
-    }
-
-    logger.info({ synced, updated, removed, errors: errors.length }, 'Umbrel app sync complete');
-    return { synced, updated, removed, errors };
-  }
-
-  /**
-   * Fetch all apps from a registry
-   */
-  private async fetchAllAppsFromRegistry(apiBase: string, rawBase: string): Promise<Array<{ id: string; category: string; version: string }>> {
     const response = await fetch(apiBase, {
       headers: {
         'Accept': 'application/vnd.github.v3+json',
@@ -446,16 +176,24 @@ class AppStoreService {
       .map(item => item.name)
       .filter(name => !name.startsWith('.') && !name.startsWith('_'));
 
-    const apps: Array<{ id: string; category: string; version: string }> = [];
+    const apps: Array<{ id: string; version: string; data: unknown }> = [];
     const batchSize = 20;
 
     for (let i = 0; i < appDirs.length; i += batchSize) {
       const batch = appDirs.slice(i, i + batchSize);
       const results = await Promise.allSettled(
         batch.map(async (appId) => {
-          const manifest = await this.fetchManifestFromUrl(`${rawBase}/${appId}/umbrel-app.yml`);
-          if (manifest) {
-            return { id: appId, category: manifest.category, version: manifest.version };
+          const [manifest, composeFile] = await Promise.all([
+            this.fetchManifestFromUrl(`${rawBase}/${appId}/umbrel-app.yml`),
+            this.fetchComposeFromUrl(`${rawBase}/${appId}/docker-compose.yml`),
+          ]);
+
+          if (manifest && composeFile) {
+            return {
+              id: appId,
+              version: manifest.version,
+              data: { manifest, composeFile, galleryBase } as UmbrelRawData,
+            };
           }
           return null;
         })
@@ -471,64 +209,213 @@ class AppStoreService {
     return apps;
   }
 
-  /**
-   * Fetch and cache a single app from a registry
-   */
-  private async fetchAndCacheAppFromRegistry(
-    appId: string,
-    category: string,
-    registryId: string,
-    rawBase: string,
-    galleryBase: string
-  ): Promise<void> {
-    const [manifest, composeFile] = await Promise.all([
-      this.fetchManifestFromUrl(`${rawBase}/${appId}/umbrel-app.yml`),
-      this.fetchComposeFromUrl(`${rawBase}/${appId}/docker-compose.yml`),
-    ]);
+  protected transformApp(appId: string, registryId: string, rawData: unknown): AppDefinition {
+    const { manifest, composeFile, galleryBase } = rawData as UmbrelRawData;
 
-    if (!manifest) {
-      throw new Error(`No manifest found for ${appId}`);
-    }
-
-    if (!composeFile) {
-      throw new Error(`No compose file found for ${appId}`);
-    }
-
-    // Download icon
-    await this.downloadIconFromUrl(appId, registryId, `${galleryBase}/${appId}/icon.svg`).catch(err => {
-      logger.warn({ appId, error: err }, 'Failed to download icon');
-    });
-
-    const db = getDb();
-    db.prepare(`
-      INSERT OR REPLACE INTO app_cache (id, registry, category, manifest, compose_file, updated_at)
-      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(appId, registryId, category, JSON.stringify(manifest), composeFile);
+    return {
+      id: manifest.id || appId,
+      name: manifest.name,
+      version: manifest.version,
+      tagline: manifest.tagline || '',
+      description: manifest.description || '',
+      category: manifest.category || 'utilities',
+      developer: manifest.developer || 'Unknown',
+      icon: this.getIconUrl(appId, registryId),
+      port: manifest.port || 0,
+      registry: registryId,
+      website: manifest.website || '',
+      repo: manifest.repo || '',
+      dependencies: manifest.dependencies || [],
+      gallery: (manifest.gallery || []).map(img => `${galleryBase}/${appId}/${img}`),
+      composeFile,
+      manifest,
+    };
   }
 
-  /**
-   * Download icon from URL
-   */
-  private async downloadIconFromUrl(appId: string, registryId: string, iconUrl: string): Promise<void> {
-    const iconsDir = join(config.paths.icons, 'umbrel', registryId);
+  protected async downloadIcon(appId: string, registryId: string, rawData: unknown): Promise<void> {
+    const { galleryBase } = rawData as UmbrelRawData;
+    const iconUrl = `${galleryBase}/${appId}/icon.svg`;
 
-    if (!existsSync(iconsDir)) {
-      await mkdir(iconsDir, { recursive: true });
-    }
+    const iconsDir = await this.ensureIconDir(registryId);
 
     const response = await fetch(iconUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch icon: ${response.status}`);
-    }
+    if (!response.ok) return;
 
     const iconData = await response.arrayBuffer();
     const iconPath = join(iconsDir, `${appId}.svg`);
     await writeFile(iconPath, Buffer.from(iconData));
   }
 
+  // ==================== Override Sync to Use Legacy Schema ====================
+
+  override async syncApps(registryId?: string): Promise<{ synced: number; updated: number; removed: number; errors: string[] }> {
+    await this.initialize();
+
+    const db = getDb();
+    let synced = 0;
+    let updated = 0;
+    let removed = 0;
+    const errors: string[] = [];
+    const syncedAppIds = new Map<string, Set<string>>();
+
+    // Get registries to sync
+    let registriesToSync: StoreRegistry[];
+    if (registryId) {
+      const registry = await this.getRegistry(registryId);
+      if (!registry) {
+        throw new Error(`Registry not found: ${registryId}`);
+      }
+      if (!registry.enabled) {
+        throw new Error(`Registry is disabled: ${registryId}`);
+      }
+      registriesToSync = [registry];
+    } else {
+      registriesToSync = (await this.getRegistries()).filter(r => r.enabled);
+    }
+
+    for (const registry of registriesToSync) {
+      syncedAppIds.set(registry.id, new Set());
+
+      try {
+        this.log.info({ store: this.storeName, registry: registry.name, url: registry.url }, 'Syncing registry');
+
+        const fetchedApps = await this.fetchAppsFromRegistry(registry);
+        this.log.info({ store: this.storeName, registry: registry.name, count: fetchedApps.length }, 'Fetched apps');
+
+        for (const fetchedApp of fetchedApps) {
+          try {
+            const { manifest, composeFile } = fetchedApp.data as UmbrelRawData;
+
+            const existing = db.prepare(`SELECT id, manifest FROM ${this.appCacheTable} WHERE id = ? AND registry = ?`)
+              .get(fetchedApp.id, registry.id) as { id: string; manifest: string } | undefined;
+
+            // Download icon
+            await this.downloadIcon(fetchedApp.id, registry.id, fetchedApp.data).catch(err => {
+              this.log.warn({ store: this.storeName, appId: fetchedApp.id, error: err }, 'Failed to download icon');
+            });
+
+            // Store using Umbrel's legacy schema
+            db.prepare(`
+              INSERT OR REPLACE INTO ${this.appCacheTable} (id, registry, category, manifest, compose_file, updated_at)
+              VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            `).run(fetchedApp.id, registry.id, manifest.category, JSON.stringify(manifest), composeFile);
+
+            syncedAppIds.get(registry.id)!.add(fetchedApp.id);
+
+            if (existing) {
+              const oldManifest = JSON.parse(existing.manifest) as UmbrelAppManifest;
+              if (oldManifest.version !== fetchedApp.version) {
+                updated++;
+              }
+            } else {
+              synced++;
+            }
+          } catch (err) {
+            const msg = `Failed to process ${fetchedApp.id}: ${err instanceof Error ? err.message : String(err)}`;
+            errors.push(msg);
+            this.log.warn({ store: this.storeName, appId: fetchedApp.id, registry: registry.id, error: err }, msg);
+          }
+        }
+
+        db.prepare(`UPDATE ${this.registriesTable} SET last_sync = CURRENT_TIMESTAMP WHERE id = ?`).run(registry.id);
+
+      } catch (err) {
+        const msg = `Failed to sync ${registry.name}: ${err instanceof Error ? err.message : String(err)}`;
+        errors.push(msg);
+        this.log.error({ store: this.storeName, registry: registry.id, error: err }, msg);
+      }
+    }
+
+    // Remove apps no longer in synced registries
+    for (const registry of registriesToSync) {
+      const syncedIds = syncedAppIds.get(registry.id)!;
+      const cachedApps = db.prepare(`SELECT id FROM ${this.appCacheTable} WHERE registry = ?`).all(registry.id) as { id: string }[];
+
+      for (const cached of cachedApps) {
+        if (!syncedIds.has(cached.id)) {
+          // Check if deployed before removing
+          const deployments = db.prepare('SELECT id FROM deployments WHERE app_name = ?').all(cached.id);
+          if (deployments.length > 0) {
+            this.log.warn({ appId: cached.id }, 'App removed from registry but still deployed - keeping');
+          } else {
+            db.prepare(`DELETE FROM ${this.appCacheTable} WHERE id = ? AND registry = ?`).run(cached.id, registry.id);
+            removed++;
+          }
+        }
+      }
+    }
+
+    this.log.info({ store: this.storeName, synced, updated, removed, errors: errors.length }, 'Sync complete');
+    return { synced, updated, removed, errors };
+  }
+
+  // ==================== Override App Methods for Legacy Schema ====================
+
+  override async getApps(): Promise<AppDefinition[]> {
+    await this.initialize();
+
+    const db = getDb();
+    const rows = db.prepare(`SELECT * FROM ${this.appCacheTable}`).all() as AppCacheRow[];
+    return rows.map(row => this.legacyRowToApp(row));
+  }
+
+  override async getApp(id: string, registryId?: string): Promise<AppDefinition | null> {
+    await this.initialize();
+
+    const db = getDb();
+    let row: AppCacheRow | undefined;
+
+    if (registryId) {
+      row = db.prepare(`SELECT * FROM ${this.appCacheTable} WHERE id = ? AND registry = ?`).get(id, registryId) as AppCacheRow | undefined;
+    } else {
+      row = db.prepare(`SELECT * FROM ${this.appCacheTable} WHERE id = ?`).get(id) as AppCacheRow | undefined;
+    }
+
+    if (!row) return null;
+    return this.legacyRowToApp(row);
+  }
+
+  // ==================== Umbrel-Specific Methods ====================
+
   /**
-   * Fetch manifest from URL
+   * Get all unique categories with app counts
    */
+  async getCategories(): Promise<Array<{ category: string; count: number }>> {
+    await this.initialize();
+
+    const db = getDb();
+    const rows = db.prepare(`
+      SELECT category, COUNT(*) as count
+      FROM ${this.appCacheTable}
+      GROUP BY category
+      ORDER BY count DESC
+    `).all() as Array<{ category: string; count: number }>;
+
+    return rows;
+  }
+
+  /**
+   * Get apps by category
+   */
+  async getAppsByCategory(category: string): Promise<AppDefinition[]> {
+    await this.initialize();
+
+    const db = getDb();
+    const rows = db.prepare(`SELECT * FROM ${this.appCacheTable} WHERE category = ?`).all(category) as AppCacheRow[];
+    return rows.map(row => this.legacyRowToApp(row));
+  }
+
+  // ==================== Private Helpers ====================
+
+  private parseGitHubUrl(url: string): { owner: string; repo: string } {
+    const parsed = new URL(url);
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts.length < 2) {
+      throw new Error('Invalid GitHub URL');
+    }
+    return { owner: parts[0], repo: parts[1] };
+  }
+
   private async fetchManifestFromUrl(url: string): Promise<UmbrelAppManifest | null> {
     try {
       const response = await fetch(url);
@@ -540,9 +427,6 @@ class AppStoreService {
     }
   }
 
-  /**
-   * Fetch compose file from URL
-   */
   private async fetchComposeFromUrl(url: string): Promise<string | null> {
     try {
       const response = await fetch(url);
@@ -553,120 +437,28 @@ class AppStoreService {
     }
   }
 
-  /**
-   * Get all cached apps
-   */
-  async getApps(category?: string): Promise<AppDefinition[]> {
-    await this.initialize();
-
-    const db = getDb();
-    let rows: AppCacheRow[];
-
-    if (category) {
-      rows = db.prepare(`SELECT * FROM app_cache WHERE category = ?`).all(category) as AppCacheRow[];
-    } else {
-      rows = db.prepare(`SELECT * FROM app_cache`).all() as AppCacheRow[];
-    }
-
-    return rows.map(row => this.rowToAppDefinition(row));
-  }
-
-  /**
-   * Get all unique categories with app counts
-   */
-  async getCategories(): Promise<Array<{ category: string; count: number }>> {
-    await this.initialize();
-
-    const db = getDb();
-    const rows = db.prepare(`
-      SELECT category, COUNT(*) as count
-      FROM app_cache
-      GROUP BY category
-      ORDER BY count DESC
-    `).all() as Array<{ category: string; count: number }>;
-
-    return rows;
-  }
-
-  /**
-   * Get a single app by ID
-   */
-  async getApp(id: string): Promise<AppDefinition | null> {
-    await this.initialize();
-
-    const db = getDb();
-    const row = db.prepare(`SELECT * FROM app_cache WHERE id = ?`).get(id) as AppCacheRow | undefined;
-
-    if (!row) {
-      return null;
-    }
-
-    return this.rowToAppDefinition(row);
-  }
-
-  /**
-   * Convert database row to AppDefinition
-   */
-  private rowToAppDefinition(row: AppCacheRow): AppDefinition {
+  private legacyRowToApp(row: AppCacheRow): AppDefinition {
     const manifest = JSON.parse(row.manifest) as UmbrelAppManifest;
     const registryId = row.registry || 'umbrel-official';
-
-    // Try new icon path first, fall back to old path
-    const iconPath = `/api/apps/${registryId}/${row.id}/icon`;
 
     return {
       id: row.id,
       name: manifest.name,
       version: manifest.version,
-      tagline: manifest.tagline,
-      description: manifest.description,
-      category: manifest.category,
-      developer: manifest.developer,
-      website: manifest.website,
-      repo: manifest.repo,
-      port: manifest.port,
-      dependencies: manifest.dependencies || [],
-      icon: iconPath,
-      gallery: (manifest.gallery || []).map(img => {
-        // Use registry-specific gallery URL
-        return `https://getumbrel.github.io/umbrel-apps/${row.id}/${img}`;
-      }),
-      composeFile: row.compose_file,
-      manifest,
+      tagline: manifest.tagline || '',
+      description: manifest.description || '',
+      category: manifest.category || row.category || 'utilities',
+      developer: manifest.developer || 'Unknown',
+      icon: this.getIconUrl(row.id, registryId),
+      port: manifest.port || 0,
       registry: registryId,
+      website: manifest.website || '',
+      repo: manifest.repo || '',
+      dependencies: manifest.dependencies || [],
+      gallery: (manifest.gallery || []).map(img => `https://getumbrel.github.io/umbrel-apps/${row.id}/${img}`),
+      composeFile: row.compose_file || '',
+      manifest,
     };
-  }
-
-  /**
-   * Check if apps need to be synced
-   */
-  async needsSync(): Promise<boolean> {
-    await this.initialize();
-
-    const db = getDb();
-    const registries = await this.getRegistries();
-
-    for (const registry of registries) {
-      if (!registry.enabled) continue;
-      if (!registry.lastSync) return true;
-
-      const lastSync = new Date(registry.lastSync);
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      if (lastSync < oneHourAgo) return true;
-    }
-
-    return false;
-  }
-
-  /**
-   * Get app count
-   */
-  async getAppCount(): Promise<number> {
-    await this.initialize();
-
-    const db = getDb();
-    const result = db.prepare(`SELECT COUNT(*) as count FROM app_cache`).get() as { count: number };
-    return result.count;
   }
 }
 

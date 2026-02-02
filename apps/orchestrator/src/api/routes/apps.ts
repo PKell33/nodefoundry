@@ -170,7 +170,9 @@ router.delete('/registries/:id', requireAuth, validateParams(z.object({
 router.get('/', requireAuth, validateQuery(appsQuerySchema), async (req, res, next) => {
   try {
     const category = req.query.category as string | undefined;
-    const apps = await appStoreService.getApps(category);
+    const apps = category
+      ? await appStoreService.getAppsByCategory(category)
+      : await appStoreService.getApps();
 
     res.json({
       apps,
