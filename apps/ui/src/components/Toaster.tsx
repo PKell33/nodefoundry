@@ -7,6 +7,7 @@ export function Toaster() {
       richColors
       closeButton
       theme="dark"
+      expand
       toastOptions={{
         duration: 4000,
         style: {
