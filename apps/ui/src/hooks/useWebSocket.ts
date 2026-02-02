@@ -156,11 +156,18 @@ export function useWebSocket() {
         const iconErrors = data.errors.filter(e => e.startsWith('Icon missing:'));
         const otherErrors = data.errors.filter(e => !e.startsWith('Icon missing:'));
 
-        if (otherErrors.length > 0) {
-          showError(`Sync completed with ${otherErrors.length} error(s)`);
-        } else if (iconErrors.length > 0) {
-          // Just log icon errors, don't show toast (too noisy)
-          console.warn(`${iconErrors.length} icons failed to download`);
+        // Show each non-icon error as a toast (limit to first 5 to avoid spam)
+        otherErrors.slice(0, 5).forEach(error => {
+          showError(error);
+        });
+
+        if (otherErrors.length > 5) {
+          showError(`...and ${otherErrors.length - 5} more errors`);
+        }
+
+        // Log icon errors to console (too noisy for toasts)
+        if (iconErrors.length > 0) {
+          console.warn(`${iconErrors.length} icons failed to download:`, iconErrors);
         }
       }
     });
