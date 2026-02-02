@@ -8,7 +8,7 @@
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../db/index.js';
-import { DeploymentRow } from '../db/types.js';
+import { DeploymentRow, ExistsRow } from '../db/types.js';
 import logger from '../lib/logger.js';
 import { appStoreService, type AppDefinition } from './appStoreService.js';
 import { sendCommandAndWait, isAgentConnected } from '../websocket/agentHandler.js';
@@ -74,7 +74,7 @@ class DockerDeployer {
     // Check for existing deployment
     const existing = db.prepare(`
       SELECT id FROM deployments WHERE server_id = ? AND app_name = ?
-    `).get(serverId, appId) as { id: string } | undefined;
+    `).get(serverId, appId) as ExistsRow | undefined;
 
     if (existing) {
       throw new Error(`App ${appId} is already deployed on server ${serverId}`);

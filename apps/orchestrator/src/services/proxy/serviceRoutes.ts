@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../../db/index.js';
+import { ExistsRow } from '../../db/types.js';
 import type { ServiceDefinition } from '@ownprem/shared';
 import type { ServiceRoute, ServiceRouteRowWithJoins } from './proxyTypes.js';
 import { TCP_PORT_RANGE_START, TCP_PORT_RANGE_END } from './proxyTypes.js';
@@ -68,7 +69,7 @@ export async function registerServiceRoute(
   }
 
   // Check for existing route for this service
-  const existing = db.prepare('SELECT id FROM service_routes WHERE service_id = ?').get(serviceId) as { id: string } | undefined;
+  const existing = db.prepare('SELECT id FROM service_routes WHERE service_id = ?').get(serviceId) as ExistsRow | undefined;
 
   if (existing) {
     db.prepare(`
