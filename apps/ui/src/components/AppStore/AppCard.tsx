@@ -1,26 +1,30 @@
-import { Play } from 'lucide-react';
-import type { NormalizedApp, DeploymentStatus } from './types';
+import { useNavigate } from 'react-router-dom';
+import type { NormalizedApp, DeploymentStatus, AppStoreSource } from './types';
 
 interface AppCardProps {
   app: NormalizedApp;
+  storeType: AppStoreSource;
   deployment?: DeploymentStatus;
-  onViewDetails: (app: NormalizedApp) => void;
-  onInstall: (app: NormalizedApp) => void;
 }
 
 export function AppCard({
   app,
+  storeType,
   deployment,
-  onViewDetails,
-  onInstall,
 }: AppCardProps) {
+  const navigate = useNavigate();
   const isDeployed = !!deployment;
   const category = app.categories?.[0] || app.category;
+
+  const handleClick = () => {
+    const registry = app.registry || 'default';
+    navigate(`/apps/${storeType}/${registry}/${app.id}`);
+  };
 
   return (
     <div
       className="card p-4 hover:border-accent transition-colors cursor-pointer group"
-      onClick={() => onViewDetails(app)}
+      onClick={handleClick}
     >
       <div className="flex items-start gap-3">
         <img
@@ -61,17 +65,6 @@ export function AppCard({
         ) : (
           <span className="text-xs text-muted">Not installed</span>
         )}
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onInstall(app);
-          }}
-          className="btn btn-sm btn-primary opacity-0 group-hover:opacity-100 transition-opacity"
-        >
-          <Play size={14} />
-          <span className="ml-1">Install</span>
-        </button>
       </div>
     </div>
   );

@@ -83,7 +83,8 @@ class AppStoreService extends BaseStoreService<AppDefinition> {
     const { owner, repo } = this.parseGitHubUrl(registry.url);
     const apiBase = `https://api.github.com/repos/${owner}/${repo}/contents`;
     const rawBase = `https://raw.githubusercontent.com/${owner}/${repo}/master`;
-    const galleryBase = `https://${owner}.github.io/${repo}`;
+    // Gallery images are hosted in a separate repo with '-gallery' suffix
+    const galleryBase = `https://${owner}.github.io/${repo}-gallery`;
 
     const response = await fetch(apiBase, {
       headers: {

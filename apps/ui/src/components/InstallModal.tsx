@@ -1,10 +1,20 @@
 import { useState } from 'react';
 import { Server as ServerIcon, Loader2, AlertCircle } from 'lucide-react';
 import Modal from './Modal';
-import type { UmbrelApp, Server } from '../api/client';
+import type { Server } from '../api/client';
+
+/** Minimal app interface for install modal */
+export interface InstallableApp {
+  name: string;
+  icon: string;
+  tagline?: string;
+  version: string;
+  developer?: string;
+  dependencies?: string[];
+}
 
 interface InstallModalProps {
-  app: UmbrelApp;
+  app: InstallableApp;
   servers: Server[];
   onInstall: (serverId: string) => void;
   onClose: () => void;
@@ -46,8 +56,8 @@ export function InstallModal({
           />
           <div>
             <h3 className="text-lg font-semibold">{app.name}</h3>
-            <p className="text-sm text-muted">{app.tagline}</p>
-            <p className="text-xs text-muted mt-1">Version {app.version} by {app.developer}</p>
+            {app.tagline && <p className="text-sm text-muted">{app.tagline}</p>}
+            <p className="text-xs text-muted mt-1">Version {app.version}{app.developer && ` by ${app.developer}`}</p>
           </div>
         </div>
 

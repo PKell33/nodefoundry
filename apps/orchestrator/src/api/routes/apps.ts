@@ -56,6 +56,52 @@ iconRouter.get('/:registry/:id/icon', validateParams(z.object({
   }
 });
 
+// GET /api/apps/:id/gallery/:index - Proxy gallery images to avoid CORS issues
+iconRouter.get('/:id/gallery/:index', validateParams(z.object({
+  id: z.string().min(1).max(100),
+  index: z.string().regex(/^\d+$/),
+})), async (req, res, next) => {
+  try {
+    const { id, index } = req.params;
+    const app = await appStoreService.getApp(id);
+
+    if (!app) {
+      res.status(404).json({ error: { code: 'APP_NOT_FOUND', message: `App not found: ${id}` } });
+      return;
+    }
+
+    const gallery = app.gallery || [];
+    const idx = parseInt(index, 10);
+
+    if (idx < 0 || idx >= gallery.length) {
+      res.status(404).json({ error: { code: 'IMAGE_NOT_FOUND', message: `Gallery image ${idx} not found` } });
+      return;
+    }
+
+    const imageUrl = gallery[idx];
+
+    // Fetch the image from the external URL
+    const response = await fetch(imageUrl);
+    if (!response.ok) {
+      // Return 404 for missing images (not 502) - many apps don't have gallery images
+      const status = response.status === 404 ? 404 : 502;
+      res.status(status).end();
+      return;
+    }
+
+    // Forward content type and cache headers
+    const contentType = response.headers.get('content-type') || 'image/png';
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+
+    // Stream the response
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/apps/:id/icon - Legacy icon route
 iconRouter.get('/:id/icon', validateParams(z.object({ id: z.string().min(1).max(100) })), async (req, res, next) => {
   try {

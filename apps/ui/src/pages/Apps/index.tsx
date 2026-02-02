@@ -32,13 +32,7 @@ export default function AppsIndex() {
   const runtipiCount = runtipiApps?.apps?.length || 0;
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold mb-2">App Stores</h1>
-        <p className="text-muted">Choose an app store to browse and install applications</p>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Umbrel Store */}
         <Link
           to="/apps/umbrel"
@@ -134,7 +128,6 @@ export default function AppsIndex() {
             </div>
           </div>
         </Link>
-      </div>
     </div>
   );
 }

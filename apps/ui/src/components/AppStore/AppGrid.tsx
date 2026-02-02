@@ -1,15 +1,14 @@
 import { Loader2, Package, RefreshCw } from 'lucide-react';
 import { AppCard } from './AppCard';
-import type { NormalizedApp, DeploymentStatus } from './types';
+import type { NormalizedApp, DeploymentStatus, AppStoreSource } from './types';
 
 interface AppGridProps {
   apps: NormalizedApp[];
+  storeType: AppStoreSource;
   deployments: DeploymentStatus[];
   isLoading: boolean;
   error: Error | null;
   onRetry: () => void;
-  onViewDetails: (app: NormalizedApp) => void;
-  onInstall: (app: NormalizedApp) => void;
   // For empty state
   hasFilters: boolean;
   onSync?: () => void;
@@ -19,12 +18,11 @@ interface AppGridProps {
 
 export function AppGrid({
   apps,
+  storeType,
   deployments,
   isLoading,
   error,
   onRetry,
-  onViewDetails,
-  onInstall,
   hasFilters,
   onSync,
   isSyncing,
@@ -89,9 +87,8 @@ export function AppGrid({
           <AppCard
             key={`${app.registry || app.source}-${app.id}`}
             app={app}
+            storeType={storeType}
             deployment={deployment}
-            onViewDetails={onViewDetails}
-            onInstall={onInstall}
           />
         );
       })}
