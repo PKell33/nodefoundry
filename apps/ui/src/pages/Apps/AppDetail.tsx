@@ -18,6 +18,14 @@ import { InstallModal, type InstallableApp } from '../../components/InstallModal
 import { api } from '../../api/client';
 import type { AppStoreSource } from '../../components/AppStore/types';
 
+// Inline SVG fallback icon (can't fail to load)
+const FALLBACK_ICON = 'data:image/svg+xml,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+  <rect x="3" y="3" width="18" height="18" rx="3" stroke="#666"/>
+  <circle cx="12" cy="10" r="3" stroke="#666"/>
+  <path d="M6 21v-1a6 6 0 0 1 12 0v1" stroke="#666"/>
+</svg>`);
+
 // Store display names
 const STORE_NAMES: Record<AppStoreSource, string> = {
   umbrel: 'Umbrel',
@@ -39,6 +47,7 @@ export default function AppDetail() {
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [galleryFailed, setGalleryFailed] = useState(false);
   const [showFullscreenGallery, setShowFullscreenGallery] = useState(false);
+  const [iconFailed, setIconFailed] = useState(false);
 
   const storeType = store as AppStoreSource;
 
@@ -197,12 +206,10 @@ export default function AppDetail() {
         {/* Header with icon and basic info */}
         <div className="flex items-start gap-6">
           <img
-            src={appIcon}
+            src={iconFailed ? FALLBACK_ICON : appIcon}
             alt={appName}
             className="w-24 h-24 rounded-xl bg-[var(--bg-tertiary)]"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = 'none';
-            }}
+            onError={() => setIconFailed(true)}
           />
           <div className="flex-1">
             <h1 className="text-2xl font-bold">{appName}</h1>
