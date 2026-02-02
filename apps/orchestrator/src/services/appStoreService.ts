@@ -173,6 +173,15 @@ class AppStoreService extends BaseStoreService<AppDefinition> {
     await writeFile(iconPath, Buffer.from(iconData));
   }
 
+  // ==================== Umbrel-Specific Overrides ====================
+
+  /**
+   * Override icon URL to use legacy /api/apps path (not /api/umbrel/apps)
+   */
+  protected override getIconUrl(appId: string, registryId: string): string {
+    return `/api/apps/${registryId}/${appId}/icon`;
+  }
+
   // ==================== Umbrel-Specific Methods ====================
 
   /**
