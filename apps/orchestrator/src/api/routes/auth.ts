@@ -5,6 +5,7 @@ import { requireAuth, devBypassAuth, AuthenticatedRequest } from '../middleware/
 import { validateBody, validateParams, schemas } from '../middleware/validate.js';
 import { createError } from '../middleware/error.js';
 import { getDb } from '../../db/index.js';
+import { CountRow } from '../../db/types.js';
 import { authLogger } from '../../lib/logger.js';
 import { config } from '../../config.js';
 
@@ -544,7 +545,7 @@ router.post('/users/:id/totp/reset', requireAuth, validateParams(schemas.idParam
  */
 router.get('/setup', (_req, res) => {
   const db = getDb();
-  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+  const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as CountRow;
 
   res.json({
     needsSetup: userCount.count === 0,
@@ -558,7 +559,7 @@ router.get('/setup', (_req, res) => {
 router.post('/setup', validateBody(schemas.auth.setup), async (req, res, next) => {
   try {
     const db = getDb();
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as CountRow;
 
     if (userCount.count > 0) {
       throw createError('Setup already complete. Users exist.', 403, 'SETUP_COMPLETE');

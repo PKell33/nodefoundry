@@ -1,4 +1,5 @@
 import { getDb } from '../db/index.js';
+import { CountRow } from '../db/types.js';
 import { auditService } from '../services/auditService.js';
 import logger from '../lib/logger.js';
 
@@ -103,7 +104,7 @@ export function getExpiredSessionCount(): number {
     const db = getDb();
     const result = db.prepare(`
       SELECT COUNT(*) as count FROM refresh_tokens WHERE expires_at < CURRENT_TIMESTAMP
-    `).get() as { count: number };
+    `).get() as CountRow;
     return result.count;
   } catch (err) {
     logger.error({ err }, 'Failed to count expired sessions');
@@ -119,7 +120,7 @@ export function getActiveSessionCount(): number {
     const db = getDb();
     const result = db.prepare(`
       SELECT COUNT(*) as count FROM refresh_tokens WHERE expires_at > CURRENT_TIMESTAMP
-    `).get() as { count: number };
+    `).get() as CountRow;
     return result.count;
   } catch (err) {
     logger.error({ err }, 'Failed to count active sessions');

@@ -13,6 +13,7 @@ import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import { Extract } from 'unzipper';
 import { getDb } from '../db/index.js';
+import { CountRow } from '../db/types.js';
 import { update } from '../db/queryBuilder.js';
 import logger from '../lib/logger.js';
 import { config } from '../config.js';
@@ -222,7 +223,7 @@ export abstract class BaseStoreService<TApp extends BaseAppDefinition> {
     // Seed default registries if none exist for this store
     const registryCount = db.prepare(
       `SELECT COUNT(*) as count FROM ${REGISTRIES_TABLE} WHERE store_type = ?`
-    ).get(this.storeName) as { count: number };
+    ).get(this.storeName) as CountRow;
 
     if (registryCount.count === 0) {
       const insertStmt = db.prepare(
@@ -452,7 +453,7 @@ export abstract class BaseStoreService<TApp extends BaseAppDefinition> {
 
     const result = db.prepare(
       `SELECT COUNT(*) as count FROM ${APP_CACHE_TABLE} WHERE store_type = ?`
-    ).get(this.storeName) as { count: number };
+    ).get(this.storeName) as CountRow;
     return result.count;
   }
 

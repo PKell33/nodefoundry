@@ -1,7 +1,7 @@
 import { randomBytes, createHash } from 'crypto';
 import { randomUUID } from 'crypto';
 import { getDb } from '../db/index.js';
-import { AgentTokenRow, AgentToken, rowToAgentToken } from '../db/types.js';
+import { AgentTokenRow, AgentToken, rowToAgentToken, CountRow } from '../db/types.js';
 import { auditService } from './auditService.js';
 import logger from '../lib/logger.js';
 
@@ -229,7 +229,7 @@ class AgentTokenService {
       SELECT COUNT(*) as count FROM agent_tokens
       WHERE server_id = ?
         AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-    `).get(serverId) as { count: number };
+    `).get(serverId) as CountRow;
 
     return result.count;
   }

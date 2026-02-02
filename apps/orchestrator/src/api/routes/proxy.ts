@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { proxyManager } from '../../services/proxyManager.js';
 import { getDb } from '../../db/index.js';
+import { CountRow } from '../../db/types.js';
 import { ErrorCodes } from '@ownprem/shared';
 
 const router = Router();
@@ -63,7 +64,7 @@ router.post('/reload', async (_req, res, next) => {
 router.get('/status', async (_req, res, next) => {
   try {
     const db = getDb();
-    const routeCount = db.prepare('SELECT COUNT(*) as count FROM proxy_routes WHERE active = TRUE').get() as { count: number };
+    const routeCount = db.prepare('SELECT COUNT(*) as count FROM proxy_routes WHERE active = TRUE').get() as CountRow;
 
     res.json({
       activeRoutes: routeCount.count,

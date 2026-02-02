@@ -1,5 +1,5 @@
 import { getDb } from '../db/index.js';
-import { AuditLogRow } from '../db/types.js';
+import { AuditLogRow, CountRow } from '../db/types.js';
 import { filter } from '../db/queryBuilder.js';
 import logger from '../lib/logger.js';
 
@@ -157,7 +157,7 @@ class AuditService {
       .build();
 
     // Get total count
-    const countRow = db.prepare(`SELECT COUNT(*) as count FROM audit_log ${whereClause}`).get(...params) as { count: number };
+    const countRow = db.prepare(`SELECT COUNT(*) as count FROM audit_log ${whereClause}`).get(...params) as CountRow;
 
     // Get paginated results
     const limit = filters.limit || 100;

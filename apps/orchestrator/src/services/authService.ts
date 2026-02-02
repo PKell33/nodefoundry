@@ -4,7 +4,7 @@ import { randomUUID, createHash, randomBytes } from 'crypto';
 import * as OTPAuth from 'otpauth';
 import QRCode from 'qrcode';
 import { getDb } from '../db/index.js';
-import { UserRow, GroupRow, UserGroupRow, RefreshTokenRow } from '../db/types.js';
+import { UserRow, GroupRow, UserGroupRow, RefreshTokenRow, CountRow } from '../db/types.js';
 import { update } from '../db/queryBuilder.js';
 import { config } from '../config.js';
 import { authLogger } from '../lib/logger.js';
@@ -506,7 +506,7 @@ class AuthService {
       FROM user_groups ug
       JOIN groups g ON g.id = ug.group_id
       WHERE ug.user_id = ? AND g.totp_required = TRUE
-    `).get(userId) as { count: number };
+    `).get(userId) as CountRow;
     return result.count > 0;
   }
 
@@ -799,7 +799,7 @@ class AuthService {
     }
 
     // Count used backup codes
-    const usedCount = db.prepare('SELECT COUNT(*) as count FROM used_backup_codes WHERE user_id = ?').get(userId) as { count: number };
+    const usedCount = db.prepare('SELECT COUNT(*) as count FROM used_backup_codes WHERE user_id = ?').get(userId) as CountRow;
     const backupCodesRemaining = Math.max(0, totalCodes - usedCount.count);
 
     return {
@@ -810,7 +810,7 @@ class AuthService {
 
   async ensureDefaultUser(): Promise<void> {
     const db = getDb();
-    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
+    const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get() as CountRow;
 
     if (userCount.count === 0) {
       // Create default admin user in development

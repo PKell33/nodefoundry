@@ -5,6 +5,7 @@ import {
   MountRow,
   ServerMountRow,
   ServerMountWithDetailsRow,
+  CountRow,
   rowToMount,
   rowToServerMount,
   rowToServerMountWithDetails,
@@ -547,7 +548,7 @@ router.delete('/:id', requireAuth, canManageMounts, validateParams(schemas.idPar
     const activeMounts = db.prepare(`
       SELECT COUNT(*) as count FROM server_mounts
       WHERE mount_id = ? AND status IN ('mounted', 'mounting')
-    `).get(req.params.id) as { count: number };
+    `).get(req.params.id) as CountRow;
 
     if (activeMounts.count > 0) {
       throw createError('Cannot delete mount with active server assignments', 400, 'MOUNT_IN_USE');

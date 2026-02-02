@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { getDb } from '../../db/index.js';
-import { CommandLogRow } from '../../db/types.js';
+import { CommandLogRow, CountRow } from '../../db/types.js';
 import { filter } from '../../db/queryBuilder.js';
 import { AuthenticatedRequest } from '../middleware/auth.js';
 import { validateParams, validateQuery, schemas } from '../middleware/validate.js';
@@ -37,7 +37,7 @@ router.get('/', validateQuery(schemas.query.commands), (req: AuthenticatedReques
     .build();
 
   // Get total count
-  const countRow = db.prepare(`SELECT COUNT(*) as count FROM command_log cl ${whereClause}`).get(...params) as { count: number };
+  const countRow = db.prepare(`SELECT COUNT(*) as count FROM command_log cl ${whereClause}`).get(...params) as CountRow;
 
   // Use validated query params (with defaults from schema)
   const queryLimit = limit;
