@@ -165,9 +165,10 @@ export function useWebSocket() {
           showError(`...and ${otherErrors.length - 5} more errors`);
         }
 
-        // Log icon errors to console (too noisy for toasts)
+        // Show icon errors as a single summary toast
         if (iconErrors.length > 0) {
-          console.warn(`${iconErrors.length} icons failed to download:`, iconErrors);
+          const appNames = iconErrors.map(e => e.replace('Icon missing: ', '')).join(', ');
+          showError(`Missing icons: ${appNames}`);
         }
       }
     });
