@@ -1,38 +1,32 @@
 /**
- * Apps API - Browse and manage apps from Umbrel App Stores
+ * Start9 Apps API - Browse and manage apps from Start9 Marketplace
  */
 
 import { Router } from 'express';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { requireAuth } from '../middleware/auth.js';
-import { validateParams, validateQuery, validateBody } from '../middleware/validate.js';
+import { validateParams, validateBody } from '../middleware/validate.js';
 import { Errors } from '../middleware/error.js';
-import { appStoreService } from '../../services/appStoreService.js';
+import { start9StoreService } from '../../services/start9StoreService.js';
 import { config } from '../../config.js';
 import { z } from 'zod';
 
 const router = Router();
 
 // ==================== Public Icon Routes (no auth) ====================
+// These are mounted separately without auth middleware for <img> tags
 const iconRouter = Router();
 
-// GET /api/apps/:registry/:id/icon - Get app icon (registry-specific)
+// GET /api/start9/apps/:registry/:id/icon - Get app icon (with registry)
 iconRouter.get('/:registry/:id/icon', validateParams(z.object({
   registry: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/),
   id: z.string().min(1).max(100)
 })), (req, res, next) => {
   try {
     const { registry, id } = req.params;
-    const svgPath = join(config.paths.icons, 'umbrel', registry, `${id}.svg`);
-    const pngPath = join(config.paths.icons, 'umbrel', registry, `${id}.png`);
-
-    if (existsSync(svgPath)) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(svgPath);
-      return;
-    }
+    const pngPath = join(config.paths.icons, 'start9', registry, `${id}.png`);
+    const svgPath = join(config.paths.icons, 'start9', registry, `${id}.svg`);
 
     if (existsSync(pngPath)) {
       res.setHeader('Content-Type', 'image/png');
@@ -41,12 +35,10 @@ iconRouter.get('/:registry/:id/icon', validateParams(z.object({
       return;
     }
 
-    // Fall back to old icon location for backward compatibility
-    const oldIconPath = join(config.paths.icons, `${id}.svg`);
-    if (existsSync(oldIconPath)) {
+    if (existsSync(svgPath)) {
       res.setHeader('Content-Type', 'image/svg+xml');
       res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(oldIconPath);
+      res.sendFile(svgPath);
       return;
     }
 
@@ -56,24 +48,28 @@ iconRouter.get('/:registry/:id/icon', validateParams(z.object({
   }
 });
 
-// GET /api/apps/:id/icon - Legacy icon route
+// GET /api/start9/apps/:id/icon - Legacy icon route (fallback, checks all registries)
 iconRouter.get('/:id/icon', validateParams(z.object({ id: z.string().min(1).max(100) })), async (req, res, next) => {
   try {
     const id = req.params.id;
 
-    // Try old location first for backward compatibility
-    const oldIconPath = join(config.paths.icons, `${id}.svg`);
-    if (existsSync(oldIconPath)) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.sendFile(oldIconPath);
-      return;
-    }
+    // Get all registry IDs from database
+    const registries = await start9StoreService.getRegistries();
+    const registryIds = registries.map(r => r.id);
+    registryIds.push(''); // Also check root start9 directory
 
-    // Try registry-specific locations
-    const registries = await appStoreService.getRegistries();
-    for (const registry of registries) {
-      const svgPath = join(config.paths.icons, 'umbrel', registry.id, `${id}.svg`);
+    for (const registry of registryIds) {
+      const baseDir = registry ? join(config.paths.icons, 'start9', registry) : join(config.paths.icons, 'start9');
+
+      const pngPath = join(baseDir, `${id}.png`);
+      if (existsSync(pngPath)) {
+        res.setHeader('Content-Type', 'image/png');
+        res.setHeader('Cache-Control', 'public, max-age=86400');
+        res.sendFile(pngPath);
+        return;
+      }
+
+      const svgPath = join(baseDir, `${id}.svg`);
       if (existsSync(svgPath)) {
         res.setHeader('Content-Type', 'image/svg+xml');
         res.setHeader('Cache-Control', 'public, max-age=86400');
@@ -88,24 +84,19 @@ iconRouter.get('/:id/icon', validateParams(z.object({ id: z.string().min(1).max(
   }
 });
 
-// Query schema for apps list
-const appsQuerySchema = z.object({
-  category: z.string().min(1).max(50).optional(),
-});
-
 // ==================== Registry Management ====================
 
-// GET /api/apps/registries - List all registries
+// GET /api/start9/registries - List all registries
 router.get('/registries', requireAuth, async (req, res, next) => {
   try {
-    const registries = await appStoreService.getRegistries();
+    const registries = await start9StoreService.getRegistries();
     res.json({ registries });
   } catch (err) {
     next(err);
   }
 });
 
-// POST /api/apps/registries - Add a new registry
+// POST /api/start9/registries - Add a new registry
 router.post('/registries', requireAuth, validateBody(z.object({
   id: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, 'ID must be lowercase alphanumeric with hyphens'),
   name: z.string().min(1).max(100),
@@ -113,7 +104,7 @@ router.post('/registries', requireAuth, validateBody(z.object({
 })), async (req, res, next) => {
   try {
     const { id, name, url } = req.body;
-    const registry = await appStoreService.addRegistry(id, name, url);
+    const registry = await start9StoreService.addRegistry(id, name, url);
     res.status(201).json(registry);
   } catch (err) {
     if (err instanceof Error && err.message.includes('already exists')) {
@@ -124,7 +115,7 @@ router.post('/registries', requireAuth, validateBody(z.object({
   }
 });
 
-// PUT /api/apps/registries/:id - Update a registry
+// PUT /api/start9/registries/:id - Update a registry
 router.put('/registries/:id', requireAuth, validateParams(z.object({
   id: z.string().min(1).max(50),
 })), validateBody(z.object({
@@ -135,7 +126,7 @@ router.put('/registries/:id', requireAuth, validateParams(z.object({
   message: 'At least one field must be provided',
 })), async (req, res, next) => {
   try {
-    const registry = await appStoreService.updateRegistry(req.params.id, req.body);
+    const registry = await start9StoreService.updateRegistry(req.params.id, req.body);
     if (!registry) {
       throw Errors.notFound('Registry', req.params.id);
     }
@@ -149,12 +140,12 @@ router.put('/registries/:id', requireAuth, validateParams(z.object({
   }
 });
 
-// DELETE /api/apps/registries/:id - Remove a registry
+// DELETE /api/start9/registries/:id - Remove a registry
 router.delete('/registries/:id', requireAuth, validateParams(z.object({
   id: z.string().min(1).max(50),
 })), async (req, res, next) => {
   try {
-    const deleted = await appStoreService.removeRegistry(req.params.id);
+    const deleted = await start9StoreService.removeRegistry(req.params.id);
     if (!deleted) {
       throw Errors.notFound('Registry', req.params.id);
     }
@@ -166,75 +157,25 @@ router.delete('/registries/:id', requireAuth, validateParams(z.object({
 
 // ==================== App Management ====================
 
-// GET /api/apps - List available apps
-router.get('/', requireAuth, validateQuery(appsQuerySchema), async (req, res, next) => {
+// GET /api/start9/apps - List all Start9 apps
+router.get('/apps', requireAuth, async (req, res, next) => {
   try {
-    const category = req.query.category as string | undefined;
-    const apps = await appStoreService.getApps(category);
+    const apps = await start9StoreService.getApps();
 
     res.json({
       apps,
       count: apps.length,
+      source: 'start9',
     });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/apps/categories - Get all categories with counts
-router.get('/categories', requireAuth, async (req, res, next) => {
+// GET /api/start9/apps/sync - Sync apps from Start9 GitHub
+router.get('/apps/sync', requireAuth, async (req, res, next) => {
   try {
-    const categories = await appStoreService.getCategories();
-    res.json({ categories });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// POST /api/apps/sync - Sync apps from Umbrel registries
-router.post('/sync', requireAuth, async (req, res, next) => {
-  try {
-    const registryId = req.query.registry as string | undefined;
-
-    if (registryId) {
-      const registry = await appStoreService.getRegistry(registryId);
-      if (!registry) {
-        res.status(400).json({ error: { code: 'INVALID_REGISTRY', message: `Registry not found: ${registryId}` } });
-        return;
-      }
-    }
-
-    const result = await appStoreService.syncApps(registryId);
-
-    const parts = [];
-    if (result.synced > 0) parts.push(`${result.synced} new`);
-    if (result.updated > 0) parts.push(`${result.updated} updated`);
-    if (result.removed > 0) parts.push(`${result.removed} removed`);
-    const summary = parts.length > 0 ? parts.join(', ') : 'No changes';
-
-    let registryName = 'Umbrel';
-    if (registryId) {
-      const registry = await appStoreService.getRegistry(registryId);
-      registryName = registry?.name || registryId;
-    }
-
-    res.json({
-      synced: result.synced,
-      updated: result.updated,
-      removed: result.removed,
-      errors: result.errors,
-      registry: registryId || 'all',
-      message: `${registryName}: ${summary}${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ''}`,
-    });
-  } catch (err) {
-    next(err);
-  }
-});
-
-// GET /api/apps/sync - Also support GET for sync (backward compatibility)
-router.get('/sync', requireAuth, async (req, res, next) => {
-  try {
-    const result = await appStoreService.syncApps();
+    const result = await start9StoreService.syncApps();
 
     const parts = [];
     if (result.synced > 0) parts.push(`${result.synced} new`);
@@ -254,31 +195,102 @@ router.get('/sync', requireAuth, async (req, res, next) => {
   }
 });
 
-// GET /api/apps/status - Get sync status
-router.get('/status', requireAuth, async (req, res, next) => {
+// POST /api/start9/apps/sync - Force sync apps from Start9 registries
+// Optional query param: ?registry=<registry-id>
+router.post('/apps/sync', requireAuth, async (req, res, next) => {
   try {
-    const needsSync = await appStoreService.needsSync();
-    const appCount = await appStoreService.getAppCount();
+    const registryId = req.query.registry as string | undefined;
+
+    // Validate registry exists if provided
+    if (registryId) {
+      const registry = await start9StoreService.getRegistry(registryId);
+      if (!registry) {
+        res.status(400).json({ error: { code: 'INVALID_REGISTRY', message: `Registry not found: ${registryId}` } });
+        return;
+      }
+    }
+
+    const result = await start9StoreService.syncApps(registryId);
+
+    const parts = [];
+    if (result.synced > 0) parts.push(`${result.synced} new`);
+    if (result.updated > 0) parts.push(`${result.updated} updated`);
+    if (result.removed > 0) parts.push(`${result.removed} removed`);
+    const summary = parts.length > 0 ? parts.join(', ') : 'No changes';
+
+    // Get registry name for message
+    let registryName = 'Start9';
+    if (registryId) {
+      const registry = await start9StoreService.getRegistry(registryId);
+      registryName = registry?.name || registryId;
+    }
 
     res.json({
-      needsSync,
-      appCount,
+      synced: result.synced,
+      updated: result.updated,
+      removed: result.removed,
+      errors: result.errors,
+      registry: registryId || 'all',
+      message: `${registryName}: ${summary}${result.errors.length > 0 ? ` (${result.errors.length} errors)` : ''}`,
     });
   } catch (err) {
     next(err);
   }
 });
 
-// GET /api/apps/:id - Get specific app details
-router.get('/:id', requireAuth, validateParams(z.object({ id: z.string().min(1).max(100) })), async (req, res, next) => {
+// GET /api/start9/apps/status - Get sync status
+router.get('/apps/status', requireAuth, async (req, res, next) => {
   try {
-    const app = await appStoreService.getApp(req.params.id);
+    const needsSync = await start9StoreService.needsSync();
+    const appCount = await start9StoreService.getAppCount();
+
+    res.json({
+      needsSync,
+      appCount,
+      source: 'start9',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/start9/apps/:id - Get specific app details
+router.get('/apps/:id', requireAuth, validateParams(z.object({ id: z.string().min(1).max(100) })), async (req, res, next) => {
+  try {
+    const app = await start9StoreService.getApp(req.params.id);
 
     if (!app) {
-      throw Errors.notFound('App', req.params.id);
+      throw Errors.notFound('Start9 App', req.params.id);
     }
 
     res.json(app);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/start9/apps/:id/load-image - Download s9pk and load Docker image
+router.post('/apps/:id/load-image', requireAuth, validateParams(z.object({ id: z.string().min(1).max(100) })), async (req, res, next) => {
+  try {
+    const app = await start9StoreService.getApp(req.params.id);
+
+    if (!app) {
+      throw Errors.notFound('Start9 App', req.params.id);
+    }
+
+    const s9pkUrl = await start9StoreService.getS9pkUrl(req.params.id);
+    if (!s9pkUrl) {
+      throw Errors.validation('No s9pk package available for this app');
+    }
+
+    const imageId = await start9StoreService.loadDockerImage(req.params.id);
+
+    res.json({
+      success: true,
+      appId: req.params.id,
+      imageId,
+      message: `Loaded Docker image: ${imageId}`,
+    });
   } catch (err) {
     next(err);
   }

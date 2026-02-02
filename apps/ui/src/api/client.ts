@@ -114,7 +114,7 @@ export function clearCsrfToken(): void {
   csrfToken = null;
 }
 
-async function handleResponse<T>(response: Response, retryFn?: () => Promise<Response>): Promise<T> {
+async function handleResponse<T>(response: Response, retryFn?: () => Promise<Response>, csrfRetried = false): Promise<T> {
   if (!response.ok) {
     // Handle 401 - try to refresh token and retry
     if (response.status === 401 && retryFn) {
@@ -126,6 +126,18 @@ async function handleResponse<T>(response: Response, retryFn?: () => Promise<Res
       }
       // Refresh failed, logout
       useAuthStore.getState().logout();
+    }
+
+    // Handle 403 with CSRF error - clear token and retry once
+    if (response.status === 403 && retryFn && !csrfRetried) {
+      const errorBody = await response.clone().json().catch(() => ({ error: {} }));
+      if (errorBody.error?.message?.toLowerCase().includes('csrf')) {
+        clearCsrfToken();
+        // Fetch new CSRF token and retry
+        await fetchCsrfToken();
+        const retryResponse = await retryFn();
+        return handleResponse<T>(retryResponse, undefined, true);
+      }
     }
 
     // Handle 429 - rate limit exceeded
@@ -198,23 +210,25 @@ async function fetchWithAuth<T>(url: string, options: RequestInit = {}): Promise
   const method = options.method?.toUpperCase() || 'GET';
   const needsCsrf = ['POST', 'PUT', 'DELETE', 'PATCH'].includes(method);
 
-  const headers: HeadersInit = {
-    ...getRequestHeaders(),
-    ...options.headers,
-  };
+  const doFetch = async () => {
+    const headers: HeadersInit = {
+      ...getRequestHeaders(),
+      ...options.headers,
+    };
 
-  if (needsCsrf) {
-    const token = await getCsrfToken();
-    if (token) {
-      (headers as Record<string, string>)['X-CSRF-Token'] = token;
+    if (needsCsrf) {
+      const token = await getCsrfToken();
+      if (token) {
+        (headers as Record<string, string>)['X-CSRF-Token'] = token;
+      }
     }
-  }
 
-  const doFetch = () => fetch(url, {
-    ...options,
-    headers,
-    credentials: 'include', // Send httpOnly cookies for authentication
-  });
+    return fetch(url, {
+      ...options,
+      headers,
+      credentials: 'include', // Send httpOnly cookies for authentication
+    });
+  };
 
   const response = await doFetch();
   return handleResponse<T>(response, doFetch);
@@ -330,14 +344,194 @@ export const api = {
     return fetchWithAuth<AppCategoriesResponse>(`${API_BASE}/apps/categories`);
   },
 
-  async syncApps() {
-    return fetchWithAuth<AppSyncResponse>(`${API_BASE}/apps/sync`, {
+  async syncApps(registryId?: string) {
+    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
+    return fetchWithAuth<AppSyncResponse>(`${API_BASE}/apps/sync${query}`, {
       method: 'POST',
     });
   },
 
   async getAppSyncStatus() {
     return fetchWithAuth<AppSyncStatus>(`${API_BASE}/apps/status`);
+  },
+
+  // Umbrel Registries
+  async getUmbrelRegistries() {
+    return fetchWithAuth<UmbrelRegistriesResponse>(`${API_BASE}/apps/registries`);
+  },
+
+  async addUmbrelRegistry(id: string, name: string, url: string) {
+    return fetchWithAuth<UmbrelRegistry>(`${API_BASE}/apps/registries`, {
+      method: 'POST',
+      body: JSON.stringify({ id, name, url }),
+    });
+  },
+
+  async updateUmbrelRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
+    return fetchWithAuth<UmbrelRegistry>(`${API_BASE}/apps/registries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async removeUmbrelRegistry(id: string) {
+    return fetchWithAuth<void>(`${API_BASE}/apps/registries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Umbrel app icon URL helper (registry-specific)
+  getUmbrelIconUrl(appId: string, registry?: string) {
+    if (registry) {
+      return `${API_BASE}/apps/${encodeURIComponent(registry)}/${encodeURIComponent(appId)}/icon`;
+    }
+    return `${API_BASE}/apps/${encodeURIComponent(appId)}/icon`;
+  },
+
+  // Start9 Apps
+  async getStart9Apps() {
+    return fetchWithAuth<Start9AppsResponse>(`${API_BASE}/start9/apps`);
+  },
+
+  async getStart9App(id: string) {
+    return fetchWithAuth<Start9App>(`${API_BASE}/start9/apps/${encodeURIComponent(id)}`);
+  },
+
+  async syncStart9Apps(registryId?: string) {
+    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
+    return fetchWithAuth<Start9SyncResponse>(`${API_BASE}/start9/apps/sync${query}`, {
+      method: 'POST',
+    });
+  },
+
+  async getStart9SyncStatus() {
+    return fetchWithAuth<Start9SyncStatus>(`${API_BASE}/start9/apps/status`);
+  },
+
+  async loadStart9Image(appId: string) {
+    return fetchWithAuth<Start9LoadImageResponse>(`${API_BASE}/start9/apps/${encodeURIComponent(appId)}/load-image`, {
+      method: 'POST',
+    });
+  },
+
+  // Start9 app icon URL helper (not an API call, just constructs the URL)
+  getStart9IconUrl(appId: string) {
+    return `${API_BASE}/start9/apps/${encodeURIComponent(appId)}/icon`;
+  },
+
+  // Start9 Registries
+  async getStart9Registries() {
+    return fetchWithAuth<Start9RegistriesResponse>(`${API_BASE}/start9/registries`);
+  },
+
+  async addStart9Registry(id: string, name: string, url: string) {
+    return fetchWithAuth<Start9Registry>(`${API_BASE}/start9/registries`, {
+      method: 'POST',
+      body: JSON.stringify({ id, name, url }),
+    });
+  },
+
+  async updateStart9Registry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
+    return fetchWithAuth<Start9Registry>(`${API_BASE}/start9/registries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async removeStart9Registry(id: string) {
+    return fetchWithAuth<void>(`${API_BASE}/start9/registries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // CasaOS Apps
+  async getCasaOSApps() {
+    return fetchWithAuth<CasaOSAppsResponse>(`${API_BASE}/casaos/apps`);
+  },
+
+  async getCasaOSApp(id: string) {
+    return fetchWithAuth<CasaOSApp>(`${API_BASE}/casaos/apps/${encodeURIComponent(id)}`);
+  },
+
+  async syncCasaOSApps(registryId?: string) {
+    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
+    return fetchWithAuth<CasaOSSyncResponse>(`${API_BASE}/casaos/apps/sync${query}`, {
+      method: 'POST',
+    });
+  },
+
+  async getCasaOSSyncStatus() {
+    return fetchWithAuth<CasaOSSyncStatus>(`${API_BASE}/casaos/apps/status`);
+  },
+
+  // CasaOS Registries
+  async getCasaOSRegistries() {
+    return fetchWithAuth<CasaOSRegistriesResponse>(`${API_BASE}/casaos/registries`);
+  },
+
+  async addCasaOSRegistry(id: string, name: string, url: string) {
+    return fetchWithAuth<CasaOSRegistry>(`${API_BASE}/casaos/registries`, {
+      method: 'POST',
+      body: JSON.stringify({ id, name, url }),
+    });
+  },
+
+  async updateCasaOSRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
+    return fetchWithAuth<CasaOSRegistry>(`${API_BASE}/casaos/registries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async removeCasaOSRegistry(id: string) {
+    return fetchWithAuth<void>(`${API_BASE}/casaos/registries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+  },
+
+  // Runtipi Apps
+  async getRuntipiApps() {
+    return fetchWithAuth<RuntipiAppsResponse>(`${API_BASE}/runtipi/apps`);
+  },
+
+  async getRuntipiApp(id: string) {
+    return fetchWithAuth<RuntipiApp>(`${API_BASE}/runtipi/apps/${encodeURIComponent(id)}`);
+  },
+
+  async syncRuntipiApps(registryId?: string) {
+    const query = registryId ? `?registry=${encodeURIComponent(registryId)}` : '';
+    return fetchWithAuth<RuntipiSyncResponse>(`${API_BASE}/runtipi/apps/sync${query}`, {
+      method: 'POST',
+    });
+  },
+
+  async getRuntipiSyncStatus() {
+    return fetchWithAuth<RuntipiSyncStatus>(`${API_BASE}/runtipi/apps/status`);
+  },
+
+  // Runtipi Registries
+  async getRuntipiRegistries() {
+    return fetchWithAuth<RuntipiRegistriesResponse>(`${API_BASE}/runtipi/registries`);
+  },
+
+  async addRuntipiRegistry(id: string, name: string, url: string) {
+    return fetchWithAuth<RuntipiRegistry>(`${API_BASE}/runtipi/registries`, {
+      method: 'POST',
+      body: JSON.stringify({ id, name, url }),
+    });
+  },
+
+  async updateRuntipiRegistry(id: string, updates: { name?: string; url?: string; enabled?: boolean }) {
+    return fetchWithAuth<RuntipiRegistry>(`${API_BASE}/runtipi/registries/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+  },
+
+  async removeRuntipiRegistry(id: string) {
+    return fetchWithAuth<void>(`${API_BASE}/runtipi/registries/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
   },
 
   // Deployments
@@ -682,6 +876,24 @@ export interface AssignMountData {
   autoMount?: boolean;
 }
 
+// App store source type
+export type AppStoreSource = 'umbrel' | 'start9' | 'casaos' | 'runtipi';
+
+// Umbrel Registry types
+export interface UmbrelRegistry {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  appCount?: number;
+  lastSync?: string;
+  createdAt: string;
+}
+
+export interface UmbrelRegistriesResponse {
+  registries: UmbrelRegistry[];
+}
+
 // Umbrel App Store types
 export interface UmbrelApp {
   id: string;
@@ -699,6 +911,7 @@ export interface UmbrelApp {
   gallery: string[];
   composeFile: string;
   manifest: UmbrelAppManifest;
+  source?: AppStoreSource; // Which store this app came from
 }
 
 export interface UmbrelAppManifest {
@@ -749,6 +962,180 @@ export interface AppCategory {
 
 export interface AppCategoriesResponse {
   categories: AppCategory[];
+}
+
+// Start9 App Store types
+export interface Start9AppInterface {
+  name: string;
+  description: string;
+  protocols: string[];
+  ui: boolean;
+}
+
+export interface Start9App {
+  id: string;
+  name: string;
+  version: string;
+  gitHash: string;
+  shortDescription: string;
+  longDescription: string;
+  releaseNotes?: string;
+  license: string;
+  wrapperRepo: string;
+  upstreamRepo: string;
+  supportSite: string;
+  marketingSite: string;
+  donationUrl?: string;
+  icon: string;
+  categories: string[];
+  interfaces: Start9AppInterface[];
+  dependencies: string[];
+  registry: string; // Registry ID (e.g., 'official', 'community', 'bip110')
+  publishedAt: string;
+  versions: string[];
+}
+
+export interface Start9Registry {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  appCount?: number;
+  lastSync?: string;
+  createdAt: string;
+}
+
+export interface Start9RegistriesResponse {
+  registries: Start9Registry[];
+}
+
+export interface Start9AppsResponse {
+  apps: Start9App[];
+  count: number;
+}
+
+export interface Start9SyncResponse {
+  synced: number;
+  updated: number;
+  removed: number;
+  errors: string[];
+  message: string;
+}
+
+export interface Start9SyncStatus {
+  needsSync: boolean;
+  appCount: number;
+  source: 'start9';
+}
+
+export interface Start9LoadImageResponse {
+  success: boolean;
+  appId: string;
+  imageId: string;
+  message: string;
+}
+
+// CasaOS App Store types
+export interface CasaOSApp {
+  id: string;
+  name: string;
+  version: string;
+  tagline: string;
+  description: string;
+  developer: string;
+  author: string;
+  icon: string;
+  screenshot?: string;
+  category: string;
+  architectures: string[];
+  port: number;
+  registry: string;
+  image: string;
+  composeFile: string;
+}
+
+export interface CasaOSRegistry {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  appCount?: number;
+  lastSync?: string;
+  createdAt: string;
+}
+
+export interface CasaOSRegistriesResponse {
+  registries: CasaOSRegistry[];
+}
+
+export interface CasaOSAppsResponse {
+  apps: CasaOSApp[];
+  count: number;
+}
+
+export interface CasaOSSyncResponse {
+  synced: number;
+  updated: number;
+  removed: number;
+  errors: string[];
+  message: string;
+}
+
+export interface CasaOSSyncStatus {
+  appCount: number;
+  source: 'casaos';
+}
+
+// Runtipi App Store types
+export interface RuntipiApp {
+  id: string;
+  name: string;
+  version: string;
+  tipiVersion: number;
+  shortDesc: string;
+  description: string;
+  author: string;
+  source: string;
+  icon: string;
+  categories: string[];
+  architectures: string[];
+  port: number;
+  registry: string;
+  exposable: boolean;
+  available: boolean;
+  composeFile: string;
+}
+
+export interface RuntipiRegistry {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  appCount?: number;
+  lastSync?: string;
+  createdAt: string;
+}
+
+export interface RuntipiRegistriesResponse {
+  registries: RuntipiRegistry[];
+}
+
+export interface RuntipiAppsResponse {
+  apps: RuntipiApp[];
+  count: number;
+}
+
+export interface RuntipiSyncResponse {
+  synced: number;
+  updated: number;
+  removed: number;
+  errors: string[];
+  message: string;
+}
+
+export interface RuntipiSyncStatus {
+  appCount: number;
+  source: 'runtipi';
 }
 
 // Deployment types

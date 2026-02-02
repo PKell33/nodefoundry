@@ -260,8 +260,8 @@ export function AppDetailModal({
                 <p className="font-medium text-[var(--text-primary)]">{app.manifest.developer}</p>
               </div>
 
-              {/* Submitter (if different from developer) */}
-              {app.manifest.submitter && app.manifest.submitter !== app.manifest.developer && (
+              {/* Submitter (if different from developer) - Umbrel only */}
+              {!app.source && app.manifest.submitter && app.manifest.submitter !== app.manifest.developer && (
                 <div>
                   <span className="text-muted text-xs uppercase tracking-wide">Submitted by</span>
                   {app.manifest.submission ? (
@@ -280,19 +280,31 @@ export function AppDetailModal({
                 </div>
               )}
 
-              {/* Port */}
-              <div>
-                <span className="text-muted text-xs uppercase tracking-wide">Port</span>
-                <p className="font-medium text-[var(--text-primary)]">{app.port}</p>
-              </div>
+              {/* Port - only show if non-zero */}
+              {app.port > 0 && (
+                <div>
+                  <span className="text-muted text-xs uppercase tracking-wide">Port</span>
+                  <p className="font-medium text-[var(--text-primary)]">{app.port}</p>
+                </div>
+              )}
 
-              {/* Manifest Version / Compatibility */}
+              {/* App Store Source */}
               <div>
-                <span className="text-muted text-xs uppercase tracking-wide">Compatible with</span>
+                <span className="text-muted text-xs uppercase tracking-wide">App Store</span>
                 <p className="font-medium text-[var(--text-primary)]">
-                  umbrelOS {app.manifest.manifestVersion >= 1.1 ? '1.0' : '0.5'}+
+                  {app.source === 'start9' ? 'Start9 Marketplace' : 'Umbrel App Store'}
                 </p>
               </div>
+
+              {/* Manifest Version / Compatibility - Umbrel only */}
+              {!app.source && (
+                <div>
+                  <span className="text-muted text-xs uppercase tracking-wide">Compatible with</span>
+                  <p className="font-medium text-[var(--text-primary)]">
+                    umbrelOS {app.manifest.manifestVersion >= 1.1 ? '1.0' : '0.5'}+
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

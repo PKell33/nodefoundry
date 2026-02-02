@@ -12,6 +12,11 @@ import agentRouter from './routes/agent.js';
 import certificateRouter from './routes/certificate.js';
 import commandsRouter from './routes/commands.js';
 import mountsRouter from './routes/mounts.js';
+import appsRouter from './routes/apps.js';
+import deploymentsRouter from './routes/deployments.js';
+import start9Router from './routes/start9.js';
+import casaosRouter from './routes/casaos.js';
+import runtipiRouter from './routes/runtipi.js';
 import { errorHandler, notFoundHandler } from './middleware/error.js';
 import { devBypassAuth, AuthenticatedRequest } from './middleware/auth.js';
 import { csrfProtection } from './middleware/csrf.js';
@@ -231,11 +236,28 @@ export function createApi(): express.Application {
   // Certificate routes (unauthenticated - needed before users can trust the site)
   app.use('/api/certificate', certificateRouter);
 
+  // Umbrel icon routes (unauthenticated - needed for <img> tags)
+  app.use('/api/apps', appsRouter.iconRouter);
+
+  // Start9 icon routes (unauthenticated - needed for <img> tags)
+  app.use('/api/start9/apps', start9Router.iconRouter);
+
+  // CasaOS icon routes (unauthenticated - needed for <img> tags)
+  app.use('/api/casaos/apps', casaosRouter.iconRouter);
+
+  // Runtipi icon routes (unauthenticated - needed for <img> tags)
+  app.use('/api/runtipi/apps', runtipiRouter.iconRouter);
+
   // Protected API routes - use devBypassAuth for development convenience, csrfProtection for CSRF defense
   app.use('/api/servers', devBypassAuth, csrfProtection, serversRouter);
   app.use('/api/system', devBypassAuth, systemRouter); // Has both read and write ops, CSRF applied per-route
   app.use('/api/commands', devBypassAuth, commandsRouter); // Read-only, no CSRF needed
   app.use('/api/mounts', devBypassAuth, csrfProtection, mountsRouter);
+  app.use('/api/apps', devBypassAuth, appsRouter); // Read-only, no CSRF needed
+  app.use('/api/start9', devBypassAuth, csrfProtection, start9Router); // Start9 app store
+  app.use('/api/casaos', devBypassAuth, csrfProtection, casaosRouter); // CasaOS app store
+  app.use('/api/runtipi', devBypassAuth, csrfProtection, runtipiRouter); // Runtipi app store
+  app.use('/api/deployments', devBypassAuth, csrfProtection, deploymentsRouter);
 
   // Error handling
   app.use('/api/*', notFoundHandler);
