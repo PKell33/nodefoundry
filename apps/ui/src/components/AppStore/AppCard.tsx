@@ -1,5 +1,14 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { NormalizedApp, DeploymentStatus, AppStoreSource } from './types';
+
+// Inline SVG fallback icon (can't fail to load)
+const FALLBACK_ICON = 'data:image/svg+xml,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+  <rect x="3" y="3" width="18" height="18" rx="3" stroke="#666"/>
+  <circle cx="12" cy="10" r="3" stroke="#666"/>
+  <path d="M6 21v-1a6 6 0 0 1 12 0v1" stroke="#666"/>
+</svg>`);
 
 interface AppCardProps {
   app: NormalizedApp;
@@ -13,6 +22,7 @@ export function AppCard({
   deployment,
 }: AppCardProps) {
   const navigate = useNavigate();
+  const [iconFailed, setIconFailed] = useState(false);
   const isDeployed = !!deployment;
   const category = app.categories?.[0] || app.category;
 
@@ -28,12 +38,10 @@ export function AppCard({
     >
       <div className="flex items-start gap-3">
         <img
-          src={app.icon}
+          src={iconFailed ? FALLBACK_ICON : app.icon}
           alt={app.name}
           className="w-12 h-12 rounded-lg bg-[var(--bg-secondary)] object-cover"
-          onError={(e) => {
-            (e.target as HTMLImageElement).src = '/icons/default-app.png';
-          }}
+          onError={() => setIconFailed(true)}
         />
         <div className="flex-1 min-w-0">
           <h3 className="font-medium truncate group-hover:text-accent transition-colors">
