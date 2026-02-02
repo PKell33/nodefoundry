@@ -12,6 +12,7 @@ import {
   Package,
   Loader2,
   AlertCircle,
+  X,
 } from 'lucide-react';
 import { InstallModal, type InstallableApp } from '../../components/InstallModal';
 import { api } from '../../api/client';
@@ -37,6 +38,7 @@ export default function AppDetail() {
   const [activeTab, setActiveTab] = useState<'about' | 'info' | 'whats-new'>('about');
   const [showInstallModal, setShowInstallModal] = useState(false);
   const [galleryFailed, setGalleryFailed] = useState(false);
+  const [showFullscreenGallery, setShowFullscreenGallery] = useState(false);
 
   const storeType = store as AppStoreSource;
 
@@ -234,8 +236,9 @@ export default function AppDetail() {
             <img
               src={getGalleryUrl(currentImage)}
               alt={`${appName} screenshot ${currentImage + 1}`}
-              className="w-full h-80 object-contain"
+              className="w-full h-[28rem] object-contain cursor-pointer hover:opacity-90 transition-opacity"
               onError={() => setGalleryFailed(true)}
+              onClick={() => setShowFullscreenGallery(true)}
             />
 
             {appGallery.length > 1 && (
@@ -458,6 +461,59 @@ export default function AppDetail() {
           onClose={() => setShowInstallModal(false)}
           isInstalling={deployMutation.isPending}
         />
+      )}
+
+      {/* Fullscreen Gallery Modal */}
+      {showFullscreenGallery && hasGallery && (
+        <div
+          className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
+          onClick={() => setShowFullscreenGallery(false)}
+        >
+          {/* Close button */}
+          <button
+            onClick={() => setShowFullscreenGallery(false)}
+            className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+          >
+            <X size={24} />
+          </button>
+
+          {/* Image */}
+          <img
+            src={getGalleryUrl(currentImage)}
+            alt={`${appName} screenshot ${currentImage + 1}`}
+            className="max-w-[90vw] max-h-[90vh] object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+
+          {/* Navigation arrows */}
+          {appGallery.length > 1 && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevImage();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                <ChevronLeft size={32} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextImage();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-white/10 hover:bg-white/20 transition-colors"
+              >
+                <ChevronRight size={32} />
+              </button>
+
+              {/* Image counter */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-white/10 text-sm">
+                {currentImage + 1} / {appGallery.length}
+              </div>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
