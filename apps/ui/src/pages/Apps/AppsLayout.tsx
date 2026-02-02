@@ -1,8 +1,7 @@
 import { Outlet, useParams, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '../../api/client';
+import { getStoreApi } from '../../api/client';
 import { Breadcrumb, type BreadcrumbItem } from '../../components/Breadcrumb';
-import type { AppStoreSource } from '../../components/AppStore/types';
 
 // Store display names
 const STORE_NAMES: Record<string, string> = {
@@ -36,46 +35,21 @@ export default function AppsLayout() {
   const registry = pathSegments[2] || params.registry;
   const appId = pathSegments[3] || params.appId;
 
-  const storeType = store as AppStoreSource | undefined;
+  // Get store API methods (eliminates switch statements)
+  const storeApi = store ? getStoreApi(store) : undefined;
 
   // Fetch registries to get registry name
   const { data: registriesData } = useQuery({
     queryKey: ['registries', store],
-    queryFn: async () => {
-      switch (storeType) {
-        case 'umbrel':
-          return api.getUmbrelRegistries();
-        case 'start9':
-          return api.getStart9Registries();
-        case 'casaos':
-          return api.getCasaOSRegistries();
-        case 'runtipi':
-          return api.getRuntipiRegistries();
-        default:
-          return { registries: [] };
-      }
-    },
-    enabled: !!store,
+    queryFn: () => storeApi?.getRegistries() ?? Promise.resolve({ registries: [] }),
+    enabled: !!storeApi,
   });
 
   // Fetch app to get app name
   const { data: app } = useQuery({
     queryKey: ['app', store, appId],
-    queryFn: async () => {
-      switch (storeType) {
-        case 'umbrel':
-          return api.getApp(appId!);
-        case 'start9':
-          return api.getStart9App(appId!);
-        case 'casaos':
-          return api.getCasaOSApp(appId!);
-        case 'runtipi':
-          return api.getRuntipiApp(appId!);
-        default:
-          return null;
-      }
-    },
-    enabled: !!store && !!appId,
+    queryFn: () => storeApi?.getApp(appId!) ?? Promise.resolve(null),
+    enabled: !!storeApi && !!appId,
   });
 
   // Get registry display name

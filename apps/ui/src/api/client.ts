@@ -133,6 +133,40 @@ const start9Api = createStoreApi<Start9App, Start9Registry>('start9');
 const casaosApi = createStoreApi<CasaOSApp, CasaOSRegistry>('casaos');
 const runtipiApi = createStoreApi<RuntipiApp, RuntipiRegistry>('runtipi');
 
+// ==================== Store API Lookup Map ====================
+
+/**
+ * Store API interface for dynamic lookup by store type.
+ * Eliminates switch statements in components.
+ */
+export interface StoreApiMethods {
+  getRegistries: () => Promise<RegistriesResponse>;
+  getApps: () => Promise<AppsListResponse<unknown>>;
+  getApp: (id: string) => Promise<unknown>;
+  syncApps: (registryId?: string) => Promise<SyncResponse>;
+  getSyncStatus: () => Promise<SyncStatusResponse>;
+  getIconUrl: (appId: string, registry?: string) => string;
+}
+
+/**
+ * Map of store types to their API methods.
+ * Use this for dynamic store-based API calls.
+ */
+export const storeApiMap: Record<string, StoreApiMethods> = {
+  umbrel: umbrelApi,
+  start9: start9Api,
+  casaos: casaosApi,
+  runtipi: runtipiApi,
+};
+
+/**
+ * Get store API methods by store type.
+ * Returns undefined for invalid store types.
+ */
+export function getStoreApi(storeType: string): StoreApiMethods | undefined {
+  return storeApiMap[storeType];
+}
+
 // Mutex to prevent concurrent token refresh attempts
 let refreshPromise: Promise<boolean> | null = null;
 

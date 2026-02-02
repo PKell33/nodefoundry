@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { InstallModal, type InstallableApp } from '../../components/InstallModal';
-import { api } from '../../api/client';
+import { api, getStoreApi } from '../../api/client';
 import type { AppStoreSource } from '../../components/AppStore/types';
 
 // Inline SVG fallback icon (can't fail to load)
@@ -51,6 +51,9 @@ export default function AppDetail() {
 
   const storeType = store as AppStoreSource;
 
+  // Get store API methods (eliminates switch statement)
+  const storeApi = store ? getStoreApi(store) : undefined;
+
   // Fetch app data based on store type
   const {
     data: app,
@@ -58,21 +61,11 @@ export default function AppDetail() {
     error: appError,
   } = useQuery({
     queryKey: ['app', store, appId],
-    queryFn: async () => {
-      switch (storeType) {
-        case 'umbrel':
-          return api.getApp(appId!);
-        case 'start9':
-          return api.getStart9App(appId!);
-        case 'casaos':
-          return api.getCasaOSApp(appId!);
-        case 'runtipi':
-          return api.getRuntipiApp(appId!);
-        default:
-          throw new Error(`Unknown store: ${store}`);
-      }
+    queryFn: () => {
+      if (!storeApi) throw new Error(`Unknown store: ${store}`);
+      return storeApi.getApp(appId!);
     },
-    enabled: !!store && !!appId,
+    enabled: !!storeApi && !!appId,
   });
 
   // Fetch servers for install
@@ -103,34 +96,65 @@ export default function AppDetail() {
   const deployment = deployments.find((d) => d.appName === appId);
   const isInstalled = !!deployment;
 
-  // Extract app properties with fallbacks for different store formats
-  const getAppProperty = (prop: string): unknown => {
-    if (!app) return undefined;
+  // Property mapping: each property has fallback field names for different store formats
+  const PROPERTY_MAP: Record<string, string[]> = {
+    name: ['name', 'title'],
+    tagline: ['tagline', 'shortDescription', 'shortDesc'],
+    description: ['description', 'longDescription'],
+    version: ['version'],
+    developer: ['developer', 'author'],
+    category: ['category'],
+    icon: ['icon'],
+    port: ['port'],
+    gallery: ['gallery'],
+    dependencies: ['dependencies'],
+    website: ['website', 'marketingSite'],
+    repo: ['repo', 'wrapperRepo', 'upstreamRepo', 'source'],
+    support: ['support', 'supportSite'],
+    releaseNotes: ['releaseNotes'],
+  };
+
+  // Get app property with fallbacks for different store formats
+  const getAppProp = <T,>(propName: string, defaultValue: T): T => {
+    if (!app) return defaultValue;
     const appObj = app as unknown as Record<string, unknown>;
-    // Try direct property first
-    if (prop in appObj) return appObj[prop];
+    const fallbacks = PROPERTY_MAP[propName] || [propName];
+
+    // Try direct properties
+    for (const key of fallbacks) {
+      if (key in appObj && appObj[key] !== undefined) {
+        return appObj[key] as T;
+      }
+    }
+
     // Try manifest for Umbrel apps
     if ('manifest' in appObj && appObj.manifest) {
       const manifest = appObj.manifest as Record<string, unknown>;
-      if (prop in manifest) return manifest[prop];
+      for (const key of fallbacks) {
+        if (key in manifest && manifest[key] !== undefined) {
+          return manifest[key] as T;
+        }
+      }
     }
-    return undefined;
+
+    return defaultValue;
   };
 
-  const appName = (getAppProperty('name') as string) || (getAppProperty('title') as string) || appId || '';
-  const appTagline = (getAppProperty('tagline') as string) || (getAppProperty('shortDescription') as string) || '';
-  const appDescription = (getAppProperty('description') as string) || (getAppProperty('longDescription') as string) || '';
-  const appVersion = (getAppProperty('version') as string) || '';
-  const appDeveloper = (getAppProperty('developer') as string) || (getAppProperty('author') as string) || 'Unknown';
-  const appCategory = (getAppProperty('category') as string) || '';
-  const appIcon = (getAppProperty('icon') as string) || '';
-  const appPort = (getAppProperty('port') as number) || 0;
-  const appGallery = (getAppProperty('gallery') as string[]) || [];
-  const appDependencies = (getAppProperty('dependencies') as string[]) || [];
-  const appWebsite = (getAppProperty('website') as string) || (getAppProperty('marketingSite') as string) || '';
-  const appRepo = (getAppProperty('repo') as string) || (getAppProperty('wrapperRepo') as string) || (getAppProperty('upstreamRepo') as string) || (getAppProperty('source') as string) || '';
-  const appSupport = (getAppProperty('support') as string) || (getAppProperty('supportSite') as string) || '';
-  const appReleaseNotes = (getAppProperty('releaseNotes') as string) || '';
+  // Extract all app properties using the mapper
+  const appName = getAppProp('name', '') || appId || '';
+  const appTagline = getAppProp('tagline', '');
+  const appDescription = getAppProp('description', '');
+  const appVersion = getAppProp('version', '');
+  const appDeveloper = getAppProp('developer', 'Unknown');
+  const appCategory = getAppProp('category', '');
+  const appIcon = getAppProp('icon', '');
+  const appPort = getAppProp('port', 0);
+  const appGallery = getAppProp<string[]>('gallery', []);
+  const appDependencies = getAppProp<string[]>('dependencies', []);
+  const appWebsite = getAppProp('website', '');
+  const appRepo = getAppProp('repo', '');
+  const appSupport = getAppProp('support', '');
+  const appReleaseNotes = getAppProp('releaseNotes', '');
 
   const hasGallery = appGallery.length > 0 && !galleryFailed;
   const hasReleaseNotes = appReleaseNotes.trim().length > 0;

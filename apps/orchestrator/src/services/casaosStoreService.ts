@@ -5,13 +5,10 @@
  * and parses Docker Compose manifests with x-casaos metadata.
  */
 
-import { mkdir, writeFile, rm, readdir, readFile } from 'fs/promises';
-import { createWriteStream, createReadStream, existsSync } from 'fs';
+import { writeFile, readdir, readFile } from 'fs/promises';
+import { existsSync } from 'fs';
 import { join } from 'path';
-import { pipeline } from 'stream/promises';
-import { Extract } from 'unzipper';
 import { BaseStoreService, type StoreRegistry, type BaseAppDefinition, type DefaultRegistry } from './baseStoreService.js';
-import { config } from '../config.js';
 import * as yaml from 'js-yaml';
 
 interface CasaOSMetadata {
@@ -78,42 +75,10 @@ class CasaOSStoreService extends BaseStoreService<CasaOSAppDefinition> {
   }
 
   protected async fetchAppsFromRegistry(registry: StoreRegistry): Promise<Array<{ id: string; version: string; data: unknown }>> {
-    const tempDir = join(config.paths.data, 'tmp', `casaos-${registry.id}-${Date.now()}`);
+    // Use base class helper to download and extract ZIP
+    const { appsDir, cleanup } = await this.downloadAndExtractZip(registry.url, 'Apps');
 
     try {
-      // Download and extract the zip file
-      await mkdir(tempDir, { recursive: true });
-      const zipPath = join(tempDir, 'store.zip');
-
-      const response = await fetch(registry.url);
-      if (!response.ok) {
-        throw new Error(`Failed to download registry: ${response.status}`);
-      }
-
-      const fileStream = createWriteStream(zipPath);
-      // @ts-expect-error - Node.js stream compatibility
-      await pipeline(response.body, fileStream);
-
-      // Extract zip
-      await new Promise<void>((resolve, reject) => {
-        createReadStream(zipPath)
-          .pipe(Extract({ path: tempDir }))
-          .on('close', resolve)
-          .on('error', reject);
-      });
-
-      // Find the Apps directory (it's inside the extracted folder)
-      const extractedDirs = await readdir(tempDir);
-      const repoDir = extractedDirs.find(d => d !== 'store.zip' && !d.startsWith('.'));
-      if (!repoDir) {
-        throw new Error('Could not find extracted repository directory');
-      }
-
-      const appsDir = join(tempDir, repoDir, 'Apps');
-      if (!existsSync(appsDir)) {
-        throw new Error('Apps directory not found in registry');
-      }
-
       // Parse each app
       const appDirs = await readdir(appsDir);
       const apps: Array<{ id: string; version: string; data: unknown }> = [];
@@ -152,8 +117,7 @@ class CasaOSStoreService extends BaseStoreService<CasaOSAppDefinition> {
 
       return apps;
     } finally {
-      // Cleanup temp directory
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      await cleanup();
     }
   }
 

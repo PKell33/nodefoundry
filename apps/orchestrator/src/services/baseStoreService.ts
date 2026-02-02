@@ -7,9 +7,11 @@
  * - store_app_cache: All cached apps with store_type column
  */
 
-import { mkdir, writeFile } from 'fs/promises';
-import { existsSync } from 'fs';
+import { mkdir, writeFile, rm, readdir } from 'fs/promises';
+import { createWriteStream, createReadStream, existsSync } from 'fs';
 import { join } from 'path';
+import { pipeline } from 'stream/promises';
+import { Extract } from 'unzipper';
 import { getDb } from '../db/index.js';
 import logger from '../lib/logger.js';
 import { config } from '../config.js';
@@ -651,6 +653,66 @@ export abstract class BaseStoreService<TApp extends BaseAppDefinition> {
 
     this.log.info({ store: this.storeName, synced, updated, removed, errors: errors.length }, 'Sync complete');
     return { synced, updated, removed, errors };
+  }
+
+  // ==================== ZIP Download Helper ====================
+
+  /**
+   * Download and extract a ZIP file from a URL.
+   * Common logic used by CasaOS and Runtipi stores.
+   *
+   * @param url URL to download the ZIP from
+   * @param appsDirName Name of the apps directory inside the repo (e.g., 'Apps', 'apps')
+   * @returns Object with appsDir path and cleanup function
+   */
+  protected async downloadAndExtractZip(url: string, appsDirName: string): Promise<{ appsDir: string; cleanup: () => Promise<void> }> {
+    const tempDir = join(config.paths.data, 'tmp', `${this.storeName}-${Date.now()}`);
+
+    // Create temp directory
+    await mkdir(tempDir, { recursive: true });
+    const zipPath = join(tempDir, 'store.zip');
+
+    // Download ZIP file
+    const response = await fetch(url);
+    if (!response.ok) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      throw new Error(`Failed to download registry: ${response.status}`);
+    }
+
+    const fileStream = createWriteStream(zipPath);
+    // @ts-expect-error - Node.js stream compatibility
+    await pipeline(response.body, fileStream);
+
+    // Extract ZIP
+    await new Promise<void>((resolve, reject) => {
+      createReadStream(zipPath)
+        .pipe(Extract({ path: tempDir }))
+        .on('close', resolve)
+        .on('error', reject);
+    });
+
+    // Find the extracted repo directory (first non-zip, non-hidden directory)
+    const extractedDirs = await readdir(tempDir);
+    const repoDir = extractedDirs.find(d => d !== 'store.zip' && !d.startsWith('.'));
+    if (!repoDir) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      throw new Error('Could not find extracted repository directory');
+    }
+
+    // Find the apps directory
+    const appsDir = join(tempDir, repoDir, appsDirName);
+    if (!existsSync(appsDir)) {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      throw new Error(`${appsDirName} directory not found in registry`);
+    }
+
+    // Return apps directory and cleanup function
+    return {
+      appsDir,
+      cleanup: async () => {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      },
+    };
   }
 
   // ==================== Icon Helpers ====================
